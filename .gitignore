@@ -1,0 +1,51 @@
+# Other directories (sub-repos NOT ignored — they have own .git, won't be tracked)
+logs/
+ui/
+/skills/
+
+# AI tool configs (not needed in version control)
+.adal/
+.agent/
+.agents/
+.augment/
+.cline/
+.codebuddy/
+.commandcode/
+.continue/
+.crush/
+.cursor/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.omc/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
+# Local settings (contains machine-specific paths)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+
+app/
+backend/
+docs/
+heartbeat/
+pad/
+tools/
+h5/
