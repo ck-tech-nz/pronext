@@ -52,6 +52,61 @@ Outlook             OutlookCalClient → Room DB → upload_synced  outlook_sync
 - Server stores what Pad uploads as-is; it's a relay for the Mobile app and other Pad devices
 - When Pad comes back online, its own direct sync re-fetches full data and corrects any gaps
 
+### Pad-Primary Coordination via Device Online Status (`skip_online`)
+
+Pad and server-side Go syncers coordinate through **device online status** in Redis.
+When a Pad is online, Go syncers automatically skip that device's calendars.
+
+```
+Pad (every ~1 min)          Heartbeat (every 5s)           Go syncer (every ~30s)
+─────────────────           ──────────────────             ─────────────────────
+sync from external          → Redis SET device:online:{sn}
+                              TTL = 2 min                  GET /get_sync_calendars/?skip_online=true
+                                                           ← device online → SKIP ✓
+                                                           (Pad handles sync)
+
+Pad offline > 2 min         → Redis key expires            GET /get_sync_calendars/?skip_online=true
+                                                           ← device offline → SYNC ✓
+                                                           (Go takes over as fallback)
+```
+
+**How it works:**
+
+1. **Pad heartbeat** (every 5s) → sets `device:online:{sn}` in Redis with **2 minute TTL**
+2. **Go syncers** call `GET /get_sync_calendars/?calendar_type=...&skip_online=true`
+3. **Django** reads `device:online_devices` Redis SET → maps SNs to device_ids via PadDevice
+   → excludes calendars where `user_id` (= device_id) has an online Pad
+4. **Result**: While Pad is online, its calendars are never returned to Go syncers
+5. **Pad goes offline** → Redis key expires after 2 min → Go syncers pick up the work
+
+**Online status TTL = 2 minutes** (not 1 hour). With heartbeat every 5s, this means
+24 heartbeat opportunities before expiry. Brief network blips won't cause false "offline".
+
+**`synced_at` also updated** — both paths set it as a secondary record:
+- Pad: `upload_synced` action in `viewset_pad.py` → `calendar.synced_at = tz.now()`
+- Go: `sync_outlook_calendar` in `views.py` → `synced.synced_at = timezone.now()`
+
+### Unified Syncer Endpoint (`get_sync_calendars`)
+
+Both Go syncers (ICS and Outlook) call the **same Django endpoint** with different params:
+
+| Syncer | URL |
+|--------|-----|
+| **ICS** | `GET /get_sync_calendars/?calendar_type=3,6,7&skip_online=true&size=10` |
+| **Outlook** | `GET /get_sync_calendars/?calendar_type=2&skip_online=true` |
+
+The endpoint handles all calendar types from one place:
+- Common: queryset filtering, `skip_online`, ordering by `synced_at ASC NULLS FIRST`, rel_user_ids
+- ICS types: returns `link`, `sha256` fields; skips calendars without `link`
+- OAuth types (Google/Outlook): returns `access_token`, `calendar_id`, `delta_link`; auto-refreshes
+  Outlook tokens if about to expire; skips calendars without valid credentials
+- After returning: bulk-updates `synced_at = now()` for all returned calendars
+
+**Deprecated endpoints** (kept for backward compatibility):
+- `/check_need_sync/` → replaced by `/get_sync_calendars/`
+- `/get_outlook_calendars/` → replaced by `/get_sync_calendars/?calendar_type=2`
+- `/get_sync_link_calendars/` → replaced by `/get_sync_calendars/`
+
 ### Recurring Event Exception Handling (Master + Exceptions Model)
 
 External calendar services (Google, Outlook, CalDAV/ICS) all use the **RFC 5545 instance model**:
@@ -315,8 +370,12 @@ result, statusCode, err := FetchOutlookEvents(accessToken, calendarID, cal.Delta
 **Fallback:** On 401, refreshes access token via Django and retries.
 
 **Pad-side Outlook** does NOT use delta (no deltaLink storage in Room). It fetches all
-non-cancelled events every cycle, relying on server-controlled interval (default ~5min)
-to limit load. The `replaceEventsForCalendar()` call does a full replace in Room.
+non-cancelled events every cycle, relying on server-controlled interval
+(`DeviceConfig.calendarSyncIntervals.outlook`, typically ~1 min) to limit load.
+The `replaceEventsForCalendar()` call does a full replace in Room.
+When Pad is online, its heartbeat keeps `device:online:{sn}` alive in Redis (2 min TTL),
+so the Go syncer's `skip_online` filter automatically excludes this device's calendars.
+See "Pad-Primary Coordination" section above.
 
 ### Google Calendar: Full Fetch (No Sync Token Yet)
 
@@ -704,8 +763,10 @@ a SHA-256 hash of `"$syncedCalendarId:$sourceId"` truncated to 7 bytes (Long).
 | Purpose | Path |
 |---------|------|
 | Go heartbeat | `heartbeat/beat.go` |
+| Unified syncer endpoint | `backend/pronext/calendar/views.py` → `get_sync_calendars` |
 | Server upload endpoint | `backend/pronext/calendar/viewset_pad.py` → `upload_synced` |
 | Server sync endpoint | `backend/pronext/calendar/viewset_pad.py` → `sync` |
+| Online status helpers | `backend/pronext/common/viewset_pad.py` → `ONLINE_STATUS_*`, `get_device_online_status` |
 | Server calendar options | `backend/pronext/calendar/options.py` → `sync_calendar()`, `flush_*_token` (CUD re-exported from providers/) |
 | Google/Outlook CUD providers | `backend/pronext/calendar/providers/__init__.py` |
 | Provider base class | `backend/pronext/calendar/providers/base.py` |

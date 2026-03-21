@@ -42,10 +42,10 @@ ui/
 # OS
 .DS_Store
 
-app/
-backend/
-docs/
-heartbeat/
-pad/
-tools/
-h5/
+# app/
+# backend/
+# docs/
+# heartbeat/
+# pad/
+# tools/
+# h5/
