@@ -21,7 +21,7 @@ plus our deliberate deviations. Authoritative source: [RFC 5545](https://datatra
 |----------|--------|---------|-------|
 | **FREQ** | DAILY, WEEKLY, MONTHLY, YEARLY | `FREQ=WEEKLY` | Required. Always uppercase. |
 | **INTERVAL** | Integer >= 1 | `INTERVAL=2` | Omitted when = 1 (implicit default). |
-| **UNTIL** | YYYYMMDD (8 digits) | `UNTIL=20260331` | **Always date-only** — see Deviation #2. |
+| **UNTIL** | YYYYMMDD or YYYYMMDDTHHMMSSZ | `UNTIL=20260331` / `UNTIL=20260331T155959Z` | Matches DTSTART type — see Deviation #2. |
 | **BYDAY** | MO,TU,WE,TH,FR,SA,SU | `BYDAY=MO,WE,FR` | Two-letter codes. Bysetpos embedded as prefix — see Deviation #1. |
 | **BYMONTHDAY** | 1–31 | `BYMONTHDAY=15` | Months with fewer days skip (RFC 5545 standard, not a bug). |
 | **BYMONTH** | 1–12 | `BYMONTH=3` | Auto-added by server for YEARLY + BYMONTHDAY (dateutil bug workaround). |
@@ -122,12 +122,19 @@ Long lines are wrapped with CRLF + space/tab continuation. Must normalize before
 **Why**: Simpler parsing. Position prefix directly before day code.
 Consistent across server (`rrule_utils.py`) and Pad (`RRuleParser.kt`).
 
-### Deviation #2: UNTIL Always Date-Only
+### Deviation #2: UNTIL Type Follows DTSTART (RFC 5545 Compliant)
 
-RFC 5545 says UNTIL type must match DTSTART. We always use YYYYMMDD (no time), even for timed events.
-Both server and Pad normalize: strip `T235959Z` or any time suffix.
+RFC 5545 requires UNTIL type to match DTSTART:
+- **All-day events** (DTSTART is DATE): UNTIL is date-only `YYYYMMDD`
+- **Timed events** (DTSTART is DATE-TIME with TZID/UTC): UNTIL is UTC `YYYYMMDDTHHMMSSZ`
 
-**Why**: Simplifies comparison logic. Timed event's "last day" is unambiguous as a date.
+Server (`replace_rrule_until`) follows this rule. Pad normalizes UNTIL to date-only for local
+expansion (dmfs lib-recur works with floating dates).
+
+**Third-party rrule normalization**: When importing rrules from ICS/Google/Outlook that have
+date-only UNTIL on timed events, the server extends to `T235959Z` (end-of-day UTC) to ensure
+dateutil includes the last day's occurrence during expansion. This is a compatibility shim,
+not a generation rule — our own rrules use the correct UTC time.
 
 ### Deviation #3: No COUNT Support
 
@@ -168,7 +175,8 @@ non-null = exception linked to master). Same pattern as server's `Event.repeat_e
 | Concept | Format | Example |
 |---------|--------|---------|
 | RRULE string | `FREQ=...;INTERVAL=...;...` | `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE` |
-| UNTIL in rrule | YYYYMMDD | `UNTIL=20260331` |
+| UNTIL in rrule (all-day) | YYYYMMDD | `UNTIL=20260331` |
+| UNTIL in rrule (timed) | YYYYMMDDTHHMMSSZ | `UNTIL=20260331T155959Z` |
 | All-day date | yyyy-MM-dd | `2026-03-15` |
 | Timed datetime (server) | ISO 8601 UTC | `2026-03-15T10:00:00+00:00` |
 | Timed datetime (Pad) | epoch millis | `1742036400000` |

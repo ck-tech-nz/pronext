@@ -595,3 +595,11 @@ Months with fewer days skip the occurrence (RFC 5545 behavior). Expected, not a 
 | Change confirm | `pad/.../components/ChangeConfirm.kt` |
 
 (All Pad paths under `pad/app/src/main/java/it/expendables/pronext/`)
+
+---
+
+## 11. Tools
+
+| Tool | URL | Purpose |
+|------|-----|---------|
+| RRULE online tester | https://icalendar.org/rrule-tool.html | Generate, test, and validate RRULE strings interactively |
