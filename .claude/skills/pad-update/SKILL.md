@@ -17,17 +17,17 @@ caused DB overload (all devices hitting check_update simultaneously) and devices
 
 ```
 Pad Device                          Django Server                    CDN/S3
-┌──────────────┐                   ┌──────────────────┐           ┌─────────┐
-│ LaunchPage   │  POST             │ check_update     │           │ APK file│
-│  ↓ 500ms     │──check_update──→ │  ├ cache lookup   │           │ hosted  │
-│ UpdateManager│                   │  ├ skip_devices?  │           │ externally
-│  ├ check()   │  ← {url,build}   │  ├ stagger slot?  │           └────┬────┘
-│  ├ download()│──────────────────────────────────────────────────────→│
-│  ├ install() │  ← APK bytes     │                    │              │
-│  └ report()  │──report_result──→│ report_update_result│             │
-│              │                   │  └ skip on failure │              │
-│ Background:  │                   └──────────────────┘              │
-│ queue 8min   │                                                     │
+┌──────────────┐                   ┌────────────────────┐           ┌─────────┐
+│ LaunchPage   │  POST             │ check_update       │           │ APK file│
+│  ↓ 500ms     │── check_update──→ │  ├ cache lookup    │           │ hosted  │
+│ UpdateManager│                   │  ├ skip_devices?   │           │ externally
+│  ├ check()   │   ← {url,build}   │  ├ stagger slot?   │           └────┬────┘
+│  ├ download()│────────────────────────────────────────────────────────→│
+│  ├ install() │   ← APK bytes     │                     │               │
+│  └ report()  │───report_result──→│ report_update_result│               │
+│              │                   │  └ skip on failure  │               │
+│ Background:  │                   └─────────────────────┘               │
+│ queue 8min   │                                                         │
 └──────────────┘
 ```
 
@@ -50,6 +50,8 @@ class PadApk(models.Model):
     url = models.URLField(max_length=2048)            # Full CDN URL to APK
     whats_new = models.TextField(null=True, blank=True)
     skip_devices = models.JSONField(default=list)     # ["SN001", "SN002"] — devices to exclude
+    window_seconds = models.PositiveIntegerField(default=7200)  # Stagger window (seconds)
+    is_paused = models.BooleanField(default=False)              # Pause rollout for non-testing devices
     status = models.SmallIntegerField(choices=[
         (0, 'UNPUBLISHED'),  # Draft
         (1, 'TESTING'),      # Only testing devices see it
@@ -117,8 +119,8 @@ def check_update(request):
 ### Staggered Rollout Algorithm (anti-thundering-herd)
 
 ```python
-def _should_notify_update(device_sn, version, window_seconds=1200):
-    """Spread update notifications across a 20-minute window."""
+def _should_notify_update(device_sn, version, window_seconds=7200):
+    """Spread update notifications across a configurable window (default 2h)."""
     hash_input = f"{device_sn}:{version}"
     hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
     device_slot = hash_value % window_seconds     # 0-1199
@@ -127,12 +129,13 @@ def _should_notify_update(device_sn, version, window_seconds=1200):
 ```
 
 **How it prevents overload:**
-- 1200 possible slots across 20 minutes
+- `window_seconds` is configurable per PadApk (default 7200 = 2 hours)
 - Each device gets deterministic slot based on `MD5(sn:version)`
-- At second 0: ~1/1200 of devices notified
-- At second 600: ~50% of devices notified
-- At second 1199: all devices notified
+- Devices check every 8 min; each cycle, `480/window_seconds` fraction of devices are released
+- Example with 5000 devices: window=7200 → ~333 devices per 8-min cycle, 2h to full rollout
+- Example with 5000 devices: window=1200 → ~2000 devices per cycle, 20min to full rollout
 - New APK version → new hash → new distribution (prevents stale slots)
+- `is_paused=True` → all non-testing devices get empty response (emergency brake)
 
 **NEVER remove or bypass the stagger logic.** This was the primary fix for the DB overload problem.
 
@@ -306,7 +309,9 @@ File: `backend/pronext/common/admin.py`, `forms.py`
 
 | Problem | Solution | Location |
 |---------|----------|----------|
-| **All devices check simultaneously** | Hash-based stagger (20-min window) | `viewset_pad.py: _should_notify_update()` |
+| **All devices check simultaneously** | Hash-based stagger (configurable window, default 2h) | `viewset_pad.py: _should_notify_update()` |
+| **Rollout too fast** | Configurable `window_seconds` per APK (1200-14400) | `PadApk.window_seconds` |
+| **Need emergency stop** | `is_paused` flag + admin Pause/Resume actions | `PadApk.is_paused` |
 | **DB overload from check_update** | 7-day APK info cache | `cache_utils.py: get_latest_apk_info()` |
 | **Device stuck on launch screen** | Randomized timeout (2-5 min) | `LaunchPage.kt` |
 | **Failed device retries forever** | Auto skip_devices on failure | `viewset_pad.py: report_update_result` |
