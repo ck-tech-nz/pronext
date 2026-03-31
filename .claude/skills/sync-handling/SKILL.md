@@ -93,7 +93,7 @@ Both Go syncers (ICS and Outlook) call the **same Django endpoint** with differe
 
 | Syncer | URL |
 |--------|-----|
-| **ICS** | `GET /get_sync_calendars/?skip_online=true&size=10` (no calendar_type filter — syncs all ICS-based types including 3,5,6,7) |
+| **ICS** | `GET /get_sync_calendars/?calendar_type=3,4,5,6,7,8&skip_online=true&size=10` |
 | **Outlook** | `GET /get_sync_calendars/?calendar_type=2&skip_online=true` |
 
 The endpoint handles all calendar types from one place:
@@ -210,7 +210,7 @@ All these scenarios follow the same path: `MainActivity.onCreate → EventManage
 - When active calendar set changes → `rescheduleAll()` → first sync runs immediately
 - Then enters periodic loop per calendar, interval from server-controlled DeviceConfig
 - Type dispatch: `3, 5, 6, 7` → `syncIcsDirect()`, `1` → `syncGoogleDirect()`, `2` → `syncOutlookDirect()`
-- **All ICS-based types (iCloud=3, Yahoo=5, URL=6, US Holidays=7) share the same sync path**
+- **All ICS-based types (iCloud=3, Cozi=4, Yahoo=5, URL=6, US Holidays=7, Outlook URL=8) share the same sync path**
 
 ### Lazy Loading (Date-Range Queries)
 
@@ -438,7 +438,9 @@ path on both Pad and Go syncer.
 
 **Migration:** Existing type=2 calendars without OAuth credentials were migrated to type=8.
 
-**Deployment:** Go ICS syncer `ICS_CALENDAR_TYPE` env var must include `8` (e.g. `3,6,7,8`).
+**Deployment:** Go ICS syncer `ICS_CALENDAR_TYPE` env var should be `3,4,5,6,7,8` (all ICS-based types).
+Omitting the env var causes it to default to empty, which fetches all calendar types from Django
+(including OAuth types that lack `link` — they'll fail silently but waste requests).
 
 ---
 
@@ -733,7 +735,7 @@ CalendarSyncWorker stores events in Room
 ## 7. Common Pitfalls & Rules
 
 ### DO NOT:
-- Forget Yahoo (type 5) when listing ICS-based calendar types — it uses the same `syncIcsDirect` path as iCloud (3), URL (6), and US Holidays (7)
+- Forget ICS-based types when listing sync paths — iCloud (3), Cozi (4), Yahoo (5), URL (6), US Holidays (7), and Outlook URL (8) all share `syncIcsDirect` on Pad and the Go ICS syncer
 - Use exact key matching for ICS properties (`key == "SUMMARY"` fails for `SUMMARY;LANGUAGE=en`)
 - Forget to handle bare `\n` in ICS line unfolding (not just `\r\n`)
 - Store exclusive end dates directly — always convert to inclusive
