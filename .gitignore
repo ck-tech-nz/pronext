@@ -38,6 +38,8 @@ ui/
 
 # Local settings (contains machine-specific paths)
 .claude/settings.local.json
+.vscode/settings.json
+db-backup.yml
 
 # OS
 .DS_Store
