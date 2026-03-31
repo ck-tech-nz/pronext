@@ -41,9 +41,10 @@ for when no Pad device is online.
 ```
                     Pad online (primary path)                  Server-side (fallback, when Pad offline)
                     ────────────────────────                   ─────────────────────────────────────────
-ICS (iCloud/URL)    IcsParser.kt → Room DB → upload_synced     ics_syncer: SHA256 → Django parse
-Google Calendar     GoogleCalClient → Room DB → upload_synced   Cloudflare Workers → Django
-Outlook             OutlookCalClient → Room DB → upload_synced  outlook_syncer: Delta Query → Django
+ICS (iCloud/Yahoo/URL) IcsParser.kt → Room DB → upload_synced     ics_syncer: SHA256 → Django parse
+Outlook URL (type=8)  IcsParser.kt → Room DB → upload_synced     ics_syncer: SHA256 → Django parse (+ convert_tz)
+Google Calendar       GoogleCalClient → Room DB → upload_synced   Cloudflare Workers → Django
+Outlook (type=2, API) OutlookCalClient → Room DB → upload_synced  outlook_syncer: Delta Query → Django
 ```
 
 - **Pad parsers** are the primary sync path: fetch from external source → process (including
@@ -92,7 +93,7 @@ Both Go syncers (ICS and Outlook) call the **same Django endpoint** with differe
 
 | Syncer | URL |
 |--------|-----|
-| **ICS** | `GET /get_sync_calendars/?calendar_type=3,6,7&skip_online=true&size=10` |
+| **ICS** | `GET /get_sync_calendars/?skip_online=true&size=10` (no calendar_type filter — syncs all ICS-based types including 3,5,6,7) |
 | **Outlook** | `GET /get_sync_calendars/?calendar_type=2&skip_online=true` |
 
 The endpoint handles all calendar types from one place:
@@ -208,6 +209,8 @@ All these scenarios follow the same path: `MainActivity.onCreate → EventManage
 - Created in `initialize()`, monitors `getSyncedCalendars()` Flow from Room
 - When active calendar set changes → `rescheduleAll()` → first sync runs immediately
 - Then enters periodic loop per calendar, interval from server-controlled DeviceConfig
+- Type dispatch: `3, 5, 6, 7` → `syncIcsDirect()`, `1` → `syncGoogleDirect()`, `2` → `syncOutlookDirect()`
+- **All ICS-based types (iCloud=3, Yahoo=5, URL=6, US Holidays=7) share the same sync path**
 
 ### Lazy Loading (Date-Range Queries)
 
@@ -350,7 +353,11 @@ if sha256sum == cal.SHA256 {
 ```
 
 DTSTAMP normalization: Outlook ICS URLs change `DTSTAMP` on every fetch even when content
-is unchanged. The Go syncer normalizes DTSTAMP to `19700101T000000Z` before hashing.
+is unchanged. The Go syncer normalizes DTSTAMP to `19700101T000000Z` before hashing
+(only for Outlook-type calendars). **Pad does NOT normalize DTSTAMP** — it hashes raw content.
+This means Pad and Go produce different SHA256 for the same Outlook ICS content. In practice
+this is harmless: when Pad goes offline and Go takes over, Go may re-sync once due to hash
+mismatch, then stabilizes.
 
 ### Outlook: Delta Query (Server Go Syncer)
 
@@ -391,8 +398,19 @@ The `etag` field is already stored as `syncedEtag` in preparation.
 | Source | Pad Strategy | Server Go Strategy |
 |--------|-------------|-------------------|
 | **ICS** | SHA256 hash comparison | SHA256 hash comparison (+ DTSTAMP normalization) |
-| **Google** | Full fetch every cycle | Cloudflare Workers (full fetch) |
-| **Outlook** | Full fetch every cycle | Delta Query with deltaLink persistence |
+| **Google** | Full fetch + `hashEvents()` (skip Room/upload if unchanged) | Cloudflare Workers (full fetch) |
+| **Outlook** | Full fetch + `hashEvents()` (skip Room/upload if unchanged) | Delta Query with deltaLink persistence |
+
+### Fatal Error Handling (Pad)
+
+When an ICS/Google/Outlook sync fails with an HTTP error, the Pad checks
+`SettingManager.shared.calendarSyncFatalCodes` (server-controlled list, NOT hardcoded):
+- **Fatal codes** (e.g. 401, 403, 404): sets `syncError` on the calendar entity, blocks
+  further sync attempts until cleared. Error is reported to server via `reportSyncError()`.
+- **Transient codes** (e.g. 5xx, timeouts): logged only, retried on next interval.
+
+`syncError` is cleared when: (a) a subsequent sync succeeds, or (b) `syncSyncedCalendarsFromServer()`
+runs (server sync resets `syncError` to null — see Section 5 note).
 
 ### Sync Intervals (Server-Controlled)
 
@@ -402,8 +420,25 @@ Intervals are read from `SettingManager.shared.calendarSyncIntervals` (DeviceCon
 |--------------|-----------------|
 | Google (1) | `intervals.google` |
 | Outlook (2) | `intervals.outlook` |
-| iCloud (3) / URL (6) | `intervals.ics` |
+| iCloud (3) / Yahoo (5) / URL (6) | `intervals.ics` |
 | US Holidays (7) | `intervals.holidays` |
+| Outlook URL (8) | `intervals.ics` |
+
+### Outlook URL Degradation (type=8)
+
+When an Outlook calendar is added via ICS URL (no OAuth token), it uses `calendar_type=8`
+(OUTLOOK_URL) instead of `calendar_type=2` (OUTLOOK). This routes it through the ICS sync
+path on both Pad and Go syncer.
+
+**Key differences from regular ICS:**
+- Go ICS syncer applies DTSTAMP normalization for Outlook URLs (URL-based detection, not type-based)
+- Django `get_link_events()` detects `outlook.live.com` or `office365.com` in the URL and applies
+  `convert_tz()` to convert Windows timezone names (e.g. "China Standard Time") to IANA (e.g. "Asia/Shanghai")
+- Pad `IcsParser.kt` has its own `WINDOWS_TZ_MAP` for the same conversion
+
+**Migration:** Existing type=2 calendars without OAuth credentials were migrated to type=8.
+
+**Deployment:** Go ICS syncer `ICS_CALENDAR_TYPE` env var must include `8` (e.g. `3,6,7,8`).
 
 ---
 
@@ -652,7 +687,6 @@ suspend fun syncSyncedCalendarsFromServer() {
             entity.copy(
                 lastSyncAt = old.lastSyncAt,
                 syncSha256 = old.syncSha256,
-                syncError = old.syncError,
                 accessToken = old.accessToken,
                 tokenExpiresAt = old.tokenExpiresAt,
             )
@@ -664,6 +698,11 @@ suspend fun syncSyncedCalendarsFromServer() {
 
 **Key**: Must delete events BEFORE replacing calendar records, otherwise orphaned events
 remain in Room with no parent calendar reference.
+
+**Note**: `syncError` is intentionally NOT preserved — server doesn't send this field, so
+`toEntity()` defaults it to `null`. This means each server sync clears any fatal error,
+giving the calendar one retry opportunity. If the URL is still broken, `syncCalendar()` will
+re-set `syncError` on the next attempt.
 
 ---
 
@@ -694,6 +733,7 @@ CalendarSyncWorker stores events in Room
 ## 7. Common Pitfalls & Rules
 
 ### DO NOT:
+- Forget Yahoo (type 5) when listing ICS-based calendar types — it uses the same `syncIcsDirect` path as iCloud (3), URL (6), and US Holidays (7)
 - Use exact key matching for ICS properties (`key == "SUMMARY"` fails for `SUMMARY;LANGUAGE=en`)
 - Forget to handle bare `\n` in ICS line unfolding (not just `\r\n`)
 - Store exclusive end dates directly — always convert to inclusive
@@ -705,6 +745,7 @@ CalendarSyncWorker stores events in Room
 - Delete a recurring master without cascading to its exceptions (`parentEventId == master.id`)
 - Send recurrence strings to Google Calendar API without `RRULE:` prefix (causes "Invalid recurrence rule" 400 error)
 - Let Google/Outlook API failures in AND_FUTURE update crash the transaction (wrap in try/except like delete does)
+- Assume ICS TZID values are always IANA timezone IDs — Outlook ICS uses Windows names like "China Standard Time" which Java/Go cannot resolve directly
 
 ### MUST:
 - Subtract 1 day from all-day event end dates in ALL three parsers
@@ -718,6 +759,7 @@ CalendarSyncWorker stores events in Room
 - Normalize exdates to date-only (`.take(10)`) in rrule expansion (server stores datetime for timed events per RFC 5545)
 - Upload processed events (masters + exceptions) to server via `upload_synced`
 - Ensure `RRULE:` prefix on all recurrence strings sent to Google Calendar API — use `GoogleCalendar._ensure_rrule_prefix()` in `sync.py` (defense-in-depth for DB data that may lack the prefix)
+- Convert Windows timezone names to IANA in ICS parsing — both Django (`convert_tz()` in `google_sync.py`) and Pad (`WINDOWS_TZ_MAP` in `IcsParser.kt`) must handle this for Outlook ICS URLs
 
 ### ID Generation:
 All three sources use `IcsParser.generateIdFromUid(sourceId, syncedCalendarId)` —
