@@ -209,7 +209,7 @@ All these scenarios follow the same path: `MainActivity.onCreate → EventManage
 - Created in `initialize()`, monitors `getSyncedCalendars()` Flow from Room
 - When active calendar set changes → `rescheduleAll()` → first sync runs immediately
 - Then enters periodic loop per calendar, interval from server-controlled DeviceConfig
-- Type dispatch: `3, 5, 6, 7` → `syncIcsDirect()`, `1` → `syncGoogleDirect()`, `2` → `syncOutlookDirect()`
+- Type dispatch: `3, 4, 5, 6, 7, 8` → `syncIcsDirect()`, `1` → `syncGoogleDirect()`, `2` → `syncOutlookDirect()`
 - **All ICS-based types (iCloud=3, Cozi=4, Yahoo=5, URL=6, US Holidays=7, Outlook URL=8) share the same sync path**
 
 ### Lazy Loading (Date-Range Queries)
