@@ -747,6 +747,7 @@ CalendarSyncWorker stores events in Room
 - Send recurrence strings to Google Calendar API without `RRULE:` prefix (causes "Invalid recurrence rule" 400 error)
 - Let Google/Outlook API failures in AND_FUTURE update crash the transaction (wrap in try/except like delete does)
 - Assume ICS TZID values are always IANA timezone IDs — Outlook ICS uses Windows names like "China Standard Time" which Java/Go cannot resolve directly
+- Give ICS exception events the same `syncedId` as their master — causes server-side dict collision in `upload_synced`, overwriting master with exception data
 
 ### MUST:
 - Subtract 1 day from all-day event end dates in ALL three parsers
@@ -759,12 +760,26 @@ CalendarSyncWorker stores events in Room
 - Include ALL Beat struct fields in `GetBeat()` copy and `SetBeat()` switch
 - Normalize exdates to date-only (`.take(10)`) in rrule expansion (server stores datetime for timed events per RFC 5545)
 - Upload processed events (masters + exceptions) to server via `upload_synced`
+- Give ICS exception events a unique `syncedId` (e.g., `"${uid}_${date}"`) — master keeps raw UID, exceptions append the original occurrence date
 - Ensure `RRULE:` prefix on all recurrence strings sent to Google Calendar API — use `GoogleCalendar._ensure_rrule_prefix()` in `sync.py` (defense-in-depth for DB data that may lack the prefix)
 - Convert Windows timezone names to IANA in ICS parsing — both Django (`convert_tz()` in `google_sync.py`) and Pad (`WINDOWS_TZ_MAP` in `IcsParser.kt`) must handle this for Outlook ICS URLs
 
 ### ID Generation:
 All three sources use `IcsParser.generateIdFromUid(sourceId, syncedCalendarId)` —
 a SHA-256 hash of `"$syncedCalendarId:$sourceId"` truncated to 7 bytes (Long).
+
+### Exception syncedId (CRITICAL):
+ICS exceptions share the same UID as their master event (per RFC 5545). To avoid server-side
+dict collision in `upload_synced` (which keys by `synced_id`), each exception MUST have a
+unique `syncedId` different from the master's:
+- **ICS**: `"${uid}_${originalDate.replace("-", "")}"` (e.g., `"uid123_20260331"`)
+- **Google**: `event.id` (API returns unique IDs per exception)
+- **Outlook**: `event.id` (API returns unique IDs per exception)
+
+**Bug history**: IcsParser originally gave exceptions the same `syncedId` as the master (the
+raw UID). On upload, the server's `existing` dict (keyed by `synced_id`) suffered a collision —
+the exception's data overwrote the master's. Then `syncEventsFromServer` replaced Room data
+with the corrupted server data, losing the master's RRULE and leaving only the exception visible.
 
 ---
 
