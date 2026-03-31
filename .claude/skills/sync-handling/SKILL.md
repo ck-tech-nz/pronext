@@ -420,9 +420,8 @@ Intervals are read from `SettingManager.shared.calendarSyncIntervals` (DeviceCon
 |--------------|-----------------|
 | Google (1) | `intervals.google` |
 | Outlook (2) | `intervals.outlook` |
-| iCloud (3) / Yahoo (5) / URL (6) | `intervals.ics` |
+| iCloud (3) / Cozi (4) / Yahoo (5) / URL (6) / Outlook URL (8) | `intervals.ics` |
 | US Holidays (7) | `intervals.holidays` |
-| Outlook URL (8) | `intervals.ics` |
 
 ### Outlook URL Degradation (type=8)
 
