@@ -14,8 +14,8 @@ Parse `$ARGUMENTS` to determine build type and options:
 
 **Build types:**
 
-- `prod` or empty - Production build (default)
-- `test` or `t` - Test environment build (uses TEST_URL)
+- `prod` or empty - Production build (default, registers APK with prod backend)
+- `test` or `t` - Test build (registers APK with test backend)
 
 **Options:**
 
@@ -79,11 +79,11 @@ The script will:
 
 1. Check for uncommitted changes (exits if any)
 2. Auto-increment `versionCode` in `app/build.gradle.kts` and commit
-3. For test builds: temporarily swap `BASE_URL` to `TEST_URL` in Net.kt
-4. Clean and build release APK via `./gradlew assembleRelease`
-5. Copy APK to `./build-output/`
-6. If `--upload`: upload APK to Cloudflare R2 and register with backend API
-7. For test builds: restore Net.kt to original
+3. Clean and build release APK via `./gradlew assembleRelease`
+4. Copy APK to `./build-output/`
+5. If `--upload`: upload APK to Cloudflare R2 and register with backend API
+   - `--test`: registers with test backend (`admin-test.pronextusa.com`)
+   - default: registers with prod backend (`admin.pronextusa.com`)
 
 ### Step 4: Post-Build Tag (if -u flag)
 
