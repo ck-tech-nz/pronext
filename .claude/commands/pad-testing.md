@@ -50,7 +50,15 @@ Use the Edit tool to replace the `ACTIVATION_CODE` value in:
 
 Replace the old code with the new one. Do NOT commit this change — it's ephemeral.
 
-### Step 3: Run tests
+### Step 3: Clear app data before running
+
+Clear stale app data so the fresh activation code is actually used:
+```bash
+ADB=$HOME/Library/Android/sdk/platform-tools/adb
+$ADB shell pm clear it.expendables.pronext 2>/dev/null || true
+```
+
+### Step 4: Run tests
 
 If no argument or `run`:
 ```bash
@@ -65,11 +73,11 @@ cd /Users/ck/Git/pronext/pronext/pad
   -Pandroid.testInstrumentationRunnerArguments.class=it.expendables.pronext.calendar.<TestClass>
 ```
 
-### Step 4: Report results
+### Step 5: Report results
 
 Show test results summary. If tests failed, show the failure details.
 
-### Step 5: Revert TestConfig.kt
+### Step 6: Revert TestConfig.kt
 
 After tests complete (pass or fail), revert the activation code change:
 ```bash
