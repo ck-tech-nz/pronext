@@ -1,117 +1,113 @@
 ---
-description: Build Pad (Android tablet) APK — production or test, with optional R2 upload
-argument-hint: <prod|test> [-u]
+description: Build Pad APK, push to env branch, upload to R2, register with backend, and tag
+argument-hint: <test|prod>
 allowed-tools: Bash(*), Read
 ---
 
 # Build Pad APK
 
-Build ProNext Pad release APK and optionally upload to R2.
+Build, push, upload, and tag a ProNext Pad release APK in one step.
 
 ## Arguments
 
-Parse `$ARGUMENTS` to determine build type and options:
+Parse `$ARGUMENTS` to determine environment:
 
-**Build types:**
-
-- `prod` or empty - Production build (default, registers APK with prod backend)
-- `test` or `t` - Test build (registers APK with test backend)
-
-**Options:**
-
-- `-u` or `--upload` - Upload APK to R2 after build (also creates a git tag)
+- `test` or `t` — Push to `env/test`, register with test backend, tag `pad-vX.Y.Z-NNNN-test`
+- `prod` or `p` or empty — Push to `env/prod`, register with prod backend, tag `pad-vX.Y.Z-NNNN-prod`
 
 **Examples:**
 
-- `/build-pad` → Production build, no upload
-- `/build-pad prod` → Production build, no upload
-- `/build-pad test` → Test build, no upload
-- `/build-pad prod -u` → Production build + upload to R2 + git tag
-- `/build-pad test -u` → Test build + upload to R2 + git tag
-- `/build-pad -u` → Production build + upload to R2 + git tag
+- `/build-pad test` → Full test pipeline
+- `/build-pad prod` → Full production pipeline
+- `/build-pad` → Same as `prod`
 
 ## Instructions
 
 ### Step 1: Parse Arguments
 
-If `$ARGUMENTS` is empty, default to production build without upload.
+Parse `$ARGUMENTS`:
 
-Parse the arguments to determine:
-
-1. Build type: `prod` (default) or `test`
-2. Upload flag: whether `-u` or `--upload` is present
+- `test` or `t` → env = `test`
+- `prod` or `p` or empty → env = `prod`
 
 ### Step 2: Pre-flight Checks
 
-Before building, verify:
+Navigate to `/Users/ck/Git/pronext/pad` and verify:
 
-1. Current working directory or navigate to `/Users/ck/Git/pronext/pad`
-2. Confirm `settings.gradle.kts` exists (we're in the right directory)
-3. Check git status - warn if there are uncommitted changes (the build script will fail)
+1. `settings.gradle.kts` exists
+2. Git status is clean (no uncommitted changes — build script will fail otherwise)
 
-Report the planned build to the user:
+Report to user:
 
-- Build type (Production / Test)
-- Upload enabled or not
-- Current git branch and status
+- Environment: test / prod
+- Current git branch
+- Git status
 
-### Step 3: Execute Build
-
-Run the build script from the pad root directory:
+### Step 3: Push to Environment Branch
 
 ```bash
 cd /Users/ck/Git/pronext/pad
 
-# Production build (no upload)
-./scripts/build.sh
-
-# Production build + upload
-./scripts/build.sh --upload
-
-# Test build (no upload)
-./scripts/build.sh --test
-
-# Test build + upload
-./scripts/build.sh --test --upload
+# Push current branch to the env branch (force-with-lease since env branches diverge)
+git push --force-with-lease origin HEAD:env/test   # for test
+git push --force-with-lease origin HEAD:env/prod    # for prod
 ```
+
+### Step 4: Execute Build
+
+Run the build script:
+
+```bash
+cd /Users/ck/Git/pronext/pad
+
+# Test environment
+./scripts/build.sh --upload --test
+
+# Production environment
+./scripts/build.sh --upload
+```
+
+The `--test` flag only affects which backend the APK is registered with:
+
+- `--test`: registers with `https://admin-test.pronextusa.com`
+- default: registers with `https://admin.pronextusa.com`
 
 The script will:
 
-1. Check for uncommitted changes (exits if any)
-2. Auto-increment `versionCode` in `app/build.gradle.kts` and commit
-3. Clean and build release APK via `./gradlew assembleRelease`
-4. Copy APK to `./build-output/`
-5. If `--upload`: upload APK to Cloudflare R2 and register with backend API
-   - `--test`: registers with test backend (`admin-test.pronextusa.com`)
-   - default: registers with prod backend (`admin.pronextusa.com`)
+1. Auto-increment `versionCode` in `app/build.gradle.kts` and commit
+2. Clean and build release APK via `./gradlew assembleRelease`
+3. Copy APK to `./build-output/`
+4. Upload APK to Cloudflare R2
+5. Register APK version with the appropriate backend API
 
-### Step 4: Post-Build Tag (if -u flag)
+### Step 5: Post-Build Tag
 
-When `-u` is used, after a SUCCESSFUL build and upload, automatically create a git tag:
+After a SUCCESSFUL build and upload, create a git tag:
 
 ```bash
 cd /Users/ck/Git/pronext/pad
 
 # Read versionName and versionCode from app/build.gradle.kts
-# Format: pad-v{versionName}-{versionCode}-{prod|test}
+# Format: pad-v{versionName}-{versionCode}-{test|prod}
 # Examples:
-#   pad-v2.1.0-1393-prod
-#   pad-v2.1.0-1393-test
+#   pad-v2.2.0-1412-test
+#   pad-v2.2.0-1412-prod
 
 git tag <tag_name>
-git tag  # verify
+git push origin <tag_name>
 ```
 
-### Step 5: Report Results
+### Step 6: Report Results
 
-After build completes, report:
+Report:
 
 1. Success or failure
-2. Version info (versionName + versionCode)
-3. APK file location and size
-4. If uploaded: R2 URL from build script output
-5. If tagged: the git tag created
-6. The git commit that was created for the version bump
+2. Environment (test / prod)
+3. Version info (versionName + versionCode)
+4. APK file location and size
+5. R2 URL from build script output
+6. Git tag created
+7. The version bump commit hash
 
 ## Output Locations
 
