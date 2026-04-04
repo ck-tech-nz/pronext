@@ -87,8 +87,14 @@ git checkout -- app/src/androidTest/java/it/expendables/pronext/base/TestConfig.
 
 ## Prerequisites
 
-- Local Django backend running on port 8000
-- Android emulator running (API 30+)
+- **Django backend on port 8000** — start it yourself so you can see the logs:
+  ```bash
+  cd /Users/ck/Git/pronext/pronext/backend
+  source .venv/bin/activate
+  python3 manage.py runserver 0.0.0.0:8000
+  ```
+  Run this in a **separate background terminal** (`run_in_background`). Keep it running throughout the test session. Watch its output for 401 errors — if heartbeat returns 401 repeatedly, events may disappear from Room due to syncEventsFromServer race condition.
+- **Android emulator running** (API 30+)
 - On the pad project directory
 
 ## Test Structure
