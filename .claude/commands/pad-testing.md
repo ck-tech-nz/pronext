@@ -96,16 +96,31 @@ git checkout -- app/src/androidTest/java/it/expendables/pronext/base/TestConfig.
 ```
 pad/app/src/androidTest/java/it/expendables/pronext/
 ├── base/
-│   ├── BaseUiTest.kt      — Abstract base: app launch, auto-login, wait helpers
-│   └── TestConfig.kt      — Activation code, timeout constants
+│   ├── BaseUiTest.kt              — Abstract base: app launch, auto-login, wait helpers
+│   ├── CalendarTestHelper.kt      — Shared helper: navigation, event CRUD, assertions
+│   └── TestConfig.kt              — Activation code, timeout constants
 ├── auth/
-│   └── ActivationTest.kt  — Login flow
+│   └── ActivationTest.kt          — Login flow
 └── calendar/
     ├── CalendarNavigationTest.kt  — View switching, date nav
-    ├── EventCreateTest.kt         — Create single + repeat events
-    ├── EventEditTest.kt           — Edit single + recurring events
-    ├── EventDeleteTest.kt         — Delete single + recurring events
-    └── CategoryFilterTest.kt      — Category filter toggle
+    ├── EventCreateTest.kt         — Create single + repeat events (basic)
+    ├── EventEditTest.kt           — Edit single + recurring events (basic)
+    ├── EventDeleteTest.kt         — Delete single + recurring events (basic)
+    ├── CategoryFilterTest.kt      — Category filter toggle
+    ├── create/
+    │   └── EventCreateRepeatTest.kt    — All frequencies with UNTIL and BYDAY
+    ├── edit/
+    │   ├── EventEditThisTest.kt        — Edit THIS occurrence
+    │   ├── EventEditAllTest.kt         — Edit ALL occurrences
+    │   └── EventEditFutureTest.kt      — Edit THIS_AND_FUTURE
+    ├── delete/
+    │   ├── EventDeleteThisTest.kt      — Delete THIS occurrence
+    │   ├── EventDeleteAllTest.kt       — Delete ALL
+    │   └── EventDeleteFutureTest.kt    — Delete THIS_AND_FUTURE
+    ├── combo/
+    │   └── EventComboTest.kt           — Mixed operations + edge cases
+    └── view/
+        └── EventViewExpansionTest.kt   — RRule expansion in week view
 ```
 
 ## Troubleshooting
