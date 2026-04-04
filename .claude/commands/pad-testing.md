@@ -12,7 +12,7 @@ Fully automated UI test runner. Creates a fresh test device, generates activatio
 
 Execute these steps in order:
 
-### Step 1: Create test device and get activation code
+### Step 1: Create test device, category, and get activation code
 
 ```bash
 cd /Users/ck/Git/pronext/pronext/backend
@@ -20,6 +20,7 @@ source .venv/bin/activate
 python3 manage.py shell -c "
 from pronext.user.models import User
 from pronext.device.models import Device, UserDeviceRel
+from pronext.calendar.models import Category
 from django.db import transaction
 import datetime
 
@@ -31,6 +32,8 @@ with transaction.atomic():
     device_user = User.objects.create_user(username=device_name)
     device = Device.objects.create(device_user=device_user, name=device_name)
     rel = UserDeviceRel.objects.create(user=user, device=device, is_owner=True, removed=False)
+    # Create a default category so the calendar filter shows events
+    Category.objects.create(user=device_user, name='Pad', color='#e040fb')
     code = rel.code
     print(f'DEVICE_ID={device.pk}')
     print(f'CODE={code}')
@@ -100,5 +103,7 @@ pad/app/src/androidTest/java/it/expendables/pronext/
 ## Troubleshooting
 
 - **Tests timeout on login**: Check Django is running, emulator has network access to 10.0.2.2:8000
-- **Events not appearing after create**: Increase `DEFAULT_TIMEOUT_MS` in TestConfig
+- **Events not appearing after create**: The device likely has no category/profile — Step 1 creates one automatically. If still failing, check the calendar filter shows a profile (not "No Profile")
 - **"Already exists" errors**: Previous test run left data — events use unique timestamped titles to avoid this
+- **"New calendar is syncing" dialog blocks tests**: `BaseUiTest.dismissSyncDialog()` handles this automatically. If it fails, the dialog may have changed — check `WelcomePopover.kt`
+- **ComposeTimeoutException not caught**: Use `catch (_: Throwable)` not `catch (_: Exception)` — Compose test exceptions extend Throwable directly
