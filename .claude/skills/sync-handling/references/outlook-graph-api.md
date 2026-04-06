@@ -146,26 +146,40 @@ Full list: 100+ entries in `backend/pronext/calendar/utils.py:convert_tz()`.
 | `exception` | Modified occurrence of series | set | false |
 | *(cancelled)* | Cancelled occurrence | set | **true** |
 
-**Critical**: The `/events` endpoint does **NOT** return cancelled/deleted occurrences at all.
-Neither as `isCancelled=true` items nor as exception objects — they are simply absent from
-the response. Verified via live API testing (2026-03-16): deleting individual occurrences of
-a weekly event produces no trace in the `/events` response. The `cancelledOccurrences` property
-exists only in the **beta** Graph API, not v1.0, and is unreliable even there.
+**Critical**: The `/events` endpoint returns **ONLY `seriesMaster` and `singleInstance`** types.
+It does **NOT** return `occurrence`, `exception`, or cancelled items. Modified occurrences
+(`type=exception`) are also absent — verified via live API testing (2026-04-07): modifying a
+single occurrence of a daily event produces no trace in the `/events` response.
+The `cancelledOccurrences` property exists only in the **beta** Graph API, not v1.0.
 
-### Detecting Cancelled Occurrences — Endpoint Comparison
+### Detecting Modified & Cancelled Occurrences — Endpoint Comparison
 
-| Approach | API Calls | Works? | Notes |
-|----------|-----------|--------|-------|
-| `/events` with `isCancelled` filter | 1 | **NO** | Cancelled occurrences simply absent from response |
-| `/events/{id}/instances` per master | 1 per recurring event | YES | Correct but **O(N)** calls — avoid |
-| `/calendarView` for date range | **1 total** | **YES** | Returns expanded instances; cancelled ones absent. **Recommended.** |
-| `cancelledOccurrences` on master | 1 | Unreliable | Beta API only, not always populated |
-| Delta Query `@removed` markers | incremental | Partial | Only works for incremental sync, not initial |
+| Approach | API Calls | Works for Modified? | Works for Cancelled? | Notes |
+|----------|-----------|--------------------|--------------------|-------|
+| `/events` endpoint | 1 | **NO** | **NO** | Only returns seriesMaster + singleInstance |
+| `/events/{id}/instances` per master | 1 per recurring event | YES | YES | Correct but **O(N)** calls — avoid |
+| `/calendarView` for date range | **1 total** | **YES** (`type=exception`) | **YES** (absent = cancelled) | **Recommended.** |
+| `cancelledOccurrences` on master | 1 | NO | Unreliable | Beta API only, not always populated |
+| Delta Query `@removed` markers | incremental | Partial | Partial | Only works for incremental sync, not initial |
 
 **Current implementation (Pad)**: Hybrid approach using 2 API calls total:
 1. `/events` → get masters (with recurrence pattern) + single instances
-2. `/calendarView` → get actual expanded instances for a date range
-3. For each master, compare local rrule expansion against calendarView dates → missing = exdates
+2. `/calendarView` (with full `$select`) → get expanded instances for a date range
+   - `type=exception` instances → create standalone exception entities + add exdate to master
+   - Missing dates (vs rrule expansion) → add exdate to master (cancelled)
+   - Processing uses `mergeCalendarViewExceptions()` → `RecurrenceExceptionHelper.process()`
+
+### calendarView `originalStart` Pitfall (All-Day Events)
+
+The `originalStart` field in calendarView responses is a **plain ISO string** (not a
+DateTimeTimeZone object), e.g., `"2026-04-06T16:00:00Z"`. For all-day events in non-UTC
+calendars, this timestamp represents the original occurrence at the calendar's timezone offset
+(e.g., 16:00Z = midnight UTC+8). Using `substring(0,10)` gives the **wrong date** (`Apr 6`
+instead of `Apr 7`).
+
+**Rule**: For all-day events, derive the calendar date from `start.dateTime` (midnight UTC =
+correct calendar date), NOT from `originalStart`. This is the same class of bug as the exdate
+normalization fix in `cdf3066` (UTC datetime → local date mismatch).
 
 **Future improvement**: When Microsoft promotes `cancelledOccurrences` to v1.0 GA, switch to
 reading it directly from the series master (single `/events` call, no calendarView needed).

@@ -607,22 +607,30 @@ The `Prefer: outlook.timezone="UTC"` header converts returned times to UTC.
 to be stored. Server `get_repeats()` has a fallback: when `timezone='UTC'` + `synced_calendar_id`
 set + `device_timezone` differs → use device_timezone for rrule expansion.
 
-### Cancelled Occurrences (FIXED on Pad, server fallback TODO)
+### Modified & Cancelled Occurrences (FIXED on Pad via calendarView)
 
-**Pad** (`OutlookCalendarClient.kt`): Fixed — cancelled exceptions (`isCancelled=true`,
-`type=exception`) are now processed via `RecurrenceExceptionHelper` with `isCancelled=true`,
-which adds their `originalDate` to the master's exdates without creating standalone events.
-This matches the Google and ICS parser patterns.
+**Critical finding (2026-04-07)**: The `/events` endpoint returns **ONLY `seriesMaster` and
+`singleInstance`** types — NOT `exception` or `occurrence`. The code at line 105 checking for
+`type == "exception"` from `/events` never triggers. All exception detection must come from
+`/calendarView`.
+
+**Pad** (`OutlookCalendarClient.kt`): Fixed — uses `detectCalendarViewExceptions()`:
+1. `/calendarView` fetched with full `$select` (subject, type, id, originalStart, etc.)
+2. `type=exception` instances → `mergeCalendarViewExceptions()` → `RecurrenceExceptionHelper`
+   → creates standalone exception entities + adds exdate to master
+3. Missing dates (vs rrule expansion) → cancelled → adds exdate to master
+4. `type=exception` with `isCancelled=true` → exdate only, no standalone entity
+
+**All-day event date pitfall**: calendarView `originalStart` is a UTC timestamp
+(e.g., `"2026-04-06T16:00:00Z"` for Apr 7 in UTC+8). Using `substring(0,10)` gives
+the wrong date. Rule: for all-day events, use `start.dateTime` (midnight UTC = correct
+calendar date), NOT `originalStart`. Same class of bug as `cdf3066`.
 
 **Server fallback** (`outlook_sync.py`): Still skips all `isCancelled` events. TODO: cancelled
 exceptions should add their date to the master's `repeat_exclude`. Low priority since Pad is
 the primary syncer.
 
-**Note**: The Outlook `/events` endpoint may not return simply-deleted occurrences at all in
-some cases; `cancelledOccurrences` property exists only in the **beta** Graph API.
-
-See [references/outlook-graph-api.md § Known Issues](references/outlook-graph-api.md) for
-additional details.
+See [references/outlook-graph-api.md](references/outlook-graph-api.md) for endpoint details.
 
 ### Recurrence to RRULE
 
@@ -748,6 +756,9 @@ CalendarSyncWorker stores events in Room
 - Let Google/Outlook API failures in AND_FUTURE update crash the transaction (wrap in try/except like delete does)
 - Assume ICS TZID values are always IANA timezone IDs — Outlook ICS uses Windows names like "China Standard Time" which Java/Go cannot resolve directly
 - Give ICS exception events the same `syncedId` as their master — causes server-side dict collision in `upload_synced`, overwriting master with exception data
+- Expect Outlook `/events` to return `type=exception` events — it only returns `seriesMaster` and `singleInstance`. Use `/calendarView` for modified/cancelled occurrence detection
+- Use `originalStart` for all-day event dates in Outlook calendarView — it's a UTC timestamp (e.g., `16:00Z`) that gives the wrong date via `substring(0,10)`. Use `start.dateTime` instead (midnight UTC = correct calendar date). Same bug class as `cdf3066`
+- Replace exdates in `upload_synced` — `_merge_exclude` must keep union merge because server may have "Edit This" exdates that calendarView hasn't synced yet (bidirectional sync calendars)
 
 ### MUST:
 - Subtract 1 day from all-day event end dates in ALL three parsers
@@ -760,6 +771,7 @@ CalendarSyncWorker stores events in Room
 - Include ALL Beat struct fields in `GetBeat()` copy and `SetBeat()` switch
 - Normalize exdates to date-only (`.take(10)`) in rrule expansion (server stores datetime for timed events per RFC 5545)
 - Upload processed events (masters + exceptions) to server via `upload_synced`
+- Detect Outlook modified occurrences via `/calendarView` (not `/events`) — use `mergeCalendarViewExceptions()` with full `$select` fields
 - Give ICS exception events a unique `syncedId` (e.g., `"${uid}_${date}"`) — master keeps raw UID, exceptions append the original occurrence date
 - Ensure `RRULE:` prefix on all recurrence strings sent to Google Calendar API — use `GoogleCalendar._ensure_rrule_prefix()` in `sync.py` (defense-in-depth for DB data that may lack the prefix)
 - Convert Windows timezone names to IANA in ICS parsing — both Django (`convert_tz()` in `google_sync.py`) and Pad (`WINDOWS_TZ_MAP` in `IcsParser.kt`) must handle this for Outlook ICS URLs
