@@ -435,8 +435,15 @@ Three states: field absent = don't touch; field = null = clear rrule; field = da
 
 ### Pad sync vs App API
 - **Pad sync** (`get_xxx_for_sync`): Returns raw entities, NO rrule expansion. Pad expands locally.
-- **App API** (`get_xxx`): Returns expanded occurrences. Server expands.
+- **App API** (`get_xxx`): Returns expanded occurrences. Server expands via `get_repeats()`.
 - **NEVER mix** these two approaches.
+
+**Server expansion (`get_repeats`) must normalize rrule before parsing**:
+The Pad uploads rrules as-is from external calendars (ICS/Google/Outlook). These may contain
+non-standard UNTIL formats (e.g., `UNTIL=20260504T094500Z` on all-day events from iCloud).
+`get_repeats()` calls `replace_rrule_until(recurrence, is_all_day)` **unconditionally** when
+UNTIL is present — not guarded by `dtstart.tzinfo`. Without this, dateutil's `rrulestr()` crashes
+when the UNTIL has a `Z` suffix but dtstart is naive (all-day events).
 
 ---
 
@@ -546,7 +553,7 @@ and generates the rrule. This means:
 - Use `fastForward()` when expanding rrule (performance critical)
 - **Always include `RRULE:` prefix** when generating rrule strings — both Pad (`RRuleParser.generateRrule()`) and server (`create_rrule()`) must produce `RRULE:FREQ=...` format. Google Calendar API requires the prefix; dmfs lib-recur requires it stripped (`.removePrefix("RRULE:")`). Server's `GoogleCalendar._ensure_rrule_prefix()` is a defense-in-depth layer for existing DB data.
 - Strip `RRULE:` prefix before parsing with dmfs lib-recur (server may include it)
-- Normalize UNTIL time portions (`T235959Z` -> removed) for date-only expansion
+- **Normalize UNTIL before every expansion** — both Pad (RRuleParser strips time) and server (`get_repeats()` calls `replace_rrule_until()` unconditionally). Third-party calendars (iCloud) send `UNTIL=20260504T094500Z` even for all-day events. Without normalization, dateutil crashes because `Z` suffix implies timezone-aware UNTIL but all-day dtstart is naive. The Pad uploads rrules as-is from ICS, so the server cannot assume UNTIL is already normalized.
 - Use `transaction.atomic()` for THIS and AND_FUTURE edits (two DB ops)
 - Send Beat notification after every mutation
 - Re-sync from server after THIS/AND_FUTURE (server creates new entities)

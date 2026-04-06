@@ -131,10 +131,22 @@ RFC 5545 requires UNTIL type to match DTSTART:
 Server (`replace_rrule_until`) follows this rule. Pad normalizes UNTIL to date-only for local
 expansion (dmfs lib-recur works with floating dates).
 
-**Third-party rrule normalization**: When importing rrules from ICS/Google/Outlook that have
-date-only UNTIL on timed events, the server extends to `T235959Z` (end-of-day UTC) to ensure
-dateutil includes the last day's occurrence during expansion. This is a compatibility shim,
-not a generation rule — our own rrules use the correct UTC time.
+**Third-party rrule normalization (both directions)**:
+
+1. **Date-only UNTIL on timed events** (e.g., `UNTIL=20260324` from ICS/Outlook): Server extends
+   to `T235959Z` (end-of-day UTC) to ensure dateutil includes the last day's occurrence. This is
+   a compatibility shim — our own rrules use the correct UTC time.
+
+2. **Time-component UNTIL on all-day events** (e.g., `UNTIL=20260504T094500Z` from iCloud):
+   Server strips the time portion back to date-only `YYYYMMDD`. Without this, dateutil's
+   `rrulestr()` crashes with `ValueError` because the `Z` suffix implies timezone-aware UNTIL
+   while all-day dtstart is naive (no timezone). **Both Pad and Server must normalize** —
+   the Pad's `RRuleParser` strips time during local expansion, and the server's `get_repeats()`
+   calls `replace_rrule_until()` unconditionally when UNTIL is present.
+
+**Critical**: The Pad uploads rrules as-is from ICS (without normalization). The server MUST
+normalize at expansion time, not just at import time, because Pad-uploaded rrules may contain
+time-component UNTIL on all-day events.
 
 ### Deviation #3: No COUNT Support
 
