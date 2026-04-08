@@ -65,7 +65,7 @@ Markdown files support Mermaid diagrams. or plain text diagrams, use English for
 ### Django Backend (backend/)
 
 ```bash
-source ./venv/bin/activate              # Always activate first
+source ./.venv/bin/activate              # Always activate first
 python3 manage.py runserver 0.0.0.0:8000
 python3 manage.py test pronext.calendar # Run specific app tests
 python3 manage.py test pronext.calendar.tests.test_models.EventModelTest.test_create_event
@@ -107,37 +107,47 @@ docker compose logs -f heartbeat        # Go service logs
 docker compose logs -f api              # Django logs
 ```
 
-## 开发流程
+## Development Workflow
 
-- 开发之前：
-  - 如果对应 repo 有尚未commit 的改动，请先commit，保持工作区干净。
-  - 要保持谨慎，如果之前的改动你认为有问题不应该带入新的开发，建议先stash或者丢弃，则暂停开发提示我来处理
-- 我给你的需求可能包含多个任务，你需要全局把握它们之间的关系，合理安排开发顺序
-- 如果你认为要求的顺序不合理你可以重新排序或者拆分，每个任务完成后尽可能你来测试，而不是让我来测试
-- 如果你有信心也可以先commit，确保后面的任务能顺利进行，再回过头来完善之前的任务
-- 不论是fix 还是 feat，一个对话的结束都有应该有：
-  - 相关repos 都有 commit
-  - 并且相关的测试都通过了
-  - 无法测试，需要我测试的列出来。
-  - 如果你觉得需要我测试，请明确告诉我测试步骤和预期结果，最好能提供测试账号和数据
-- 如果多次修复都不成功，要思考一下是不是开错了repo，因为pad 和 flutter 有很多相似的功能和代码实现，容易搞混
-- PR：代码检查的时候认真考虑我们的功能需求，看看他们是不是有意为之，如果确实要修改，要提醒我是不是要重新测试一遍
-- 你要看过代码有理有据的，才能肯定我的说法，我有时候也是理想主义，不一定符合当前的代码逻辑，你不能轻易认同我。
-- 每次 commit 时，检查是否需要更新 release notes（参见 release-notes skill）
+- **Before starting work:**
+  - If the repo has uncommitted changes, commit them first to keep the working tree clean.
+  - If previous changes look problematic, pause and ask the user to handle them (stash/discard).
+- Tasks may span multiple steps — plan the order globally, reorder or split if needed.
+- After each step, run automated tests yourself where possible; list anything that requires manual testing.
+- If repeated fixes fail, double-check you are editing the right repo (pad/ and app/ share similar code).
+- **PRs:** When reviewing, consider whether existing behavior is intentional. If changes require re-testing, say so.
+- Do not blindly agree with the user — verify claims against the actual code before confirming.
 
 ## Git Workflow
 
-**Commit early and often.** Do NOT accumulate large numbers of changed files before committing. As soon as a logical unit of work compiles and runs correctly, commit it immediately. Never let uncommitted changes pile up across 10+ files — break work into smaller commits at every meaningful milestone. This is a hard rule.
+### Commit Rules
 
-Pre-commit hooks are configured in `backend/`. First commit may fail due to auto-formatting:
+**Do NOT commit until the user confirms.** After completing a change:
+
+1. Run any automated tests yourself.
+2. Tell the user what changed, how to test it, and expected results.
+3. Wait for the user to say **"Commit"** (or equivalent confirmation).
+4. Only then commit. Check if release notes need updating (see release-notes skill).
+
+This applies to all repos (backend, pad, app, h5, heartbeat, etc.).
+
+### End of Conversation
+
+Every fix or feature conversation should end with:
+
+- All changes committed (after user confirmation).
+- All automated tests passing.
+- A clear list of anything that still needs manual testing, with steps and expected results.
+
+### Pre-commit Hooks
+
+Hooks are configured in `backend/` — black (120 char), isort, flake8, djhtml. First commit may fail due to auto-formatting:
 
 ```bash
-source ./venv/bin/activate
+source ./.venv/bin/activate
 git add . && git commit -m "message"    # May fail, hooks auto-fix
 git add . && git commit -m "message"    # Second attempt passes
 ```
-
-Hooks: black (120 char), isort, flake8, djhtml
 
 ## Component Documentation
 
