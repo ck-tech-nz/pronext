@@ -14,18 +14,19 @@ Parse `$ARGUMENTS` to determine platform and options:
 
 **Platforms:**
 - `ios` - Build and publish to App Store
-- `android` - Build release APK for Google Play (default)
+- `android` - Build signed AAB for Google Play (default)
 - `all` - Build both iOS and Android
 
 **Options:**
-- `-u` or `--upload` - Upload after build (iOS: App Store, Android: PGYER via pgyer.env)
-- `-t` or `--test` - Build test APK (Android, overrides default release APK)
-- `-d` or `--debug` - Build debug APK (Android, overrides default release APK)
-- `-s` or `--sign` - Build signed AAB for Play Store (Android, overrides default release APK)
+- `-u` or `--upload` - Upload after build (iOS: App Store, Android: Google Play Store)
+- `-p` or `--pgyer` - Upload Android APK to PGYER (builds release APK instead of AAB)
+- `-t` or `--test` - Build test APK (Android, overrides default)
+- `-d` or `--debug` - Build debug APK (Android, overrides default)
 
 **Implicit behaviors (no flags needed):**
 - Build number auto-increment is ALWAYS applied automatically (once per invocation)
-- Android always builds release APK unless overridden by `-t`, `-d`, or `-s`
+- Android default: signed AAB for Google Play Store
+- `-p` flag: builds release APK and uploads to PGYER
 
 ## Instructions
 
@@ -37,7 +38,7 @@ If `$ARGUMENTS` is empty, ask the user:
 
 **Platform `all` with `-u` means:**
 - iOS: build IPA + upload to App Store
-- Android: build release APK + upload to PGYER
+- Android: build signed AAB + upload to Google Play Store
 
 ### Step 2: Pre-Build Checks & Version Increment
 
@@ -46,7 +47,7 @@ Before building, ALWAYS perform these steps in order:
 #### 2a. Check for uncommitted changes
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 git status --short
 ```
 
@@ -63,7 +64,7 @@ Build number is incremented **exactly once** per invocation, regardless of platf
 - **For `android` only**: Manually increment in pubspec.yaml and commit BEFORE running the build script:
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 # Read current version from pubspec.yaml
 # Increment build number: x.y.z+N → x.y.z+(N+1)
 # Update pubspec.yaml
@@ -79,7 +80,7 @@ cd /Users/ck/Git/pronext/mobile
 Run the script in background and wait:
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 
 # Without upload (run_in_background: true)
 ./appstore_release.sh -i
@@ -102,9 +103,12 @@ After launching, use `TaskOutput` (with `block: true, timeout: 600000`) to wait 
 Run the script in background and wait:
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 
-# Default: Release APK — production: api.pronextusa.com (run_in_background: true)
+# Default: Signed AAB for Google Play Store (run_in_background: true)
+./googleplay_release.sh -s
+
+# Release APK for PGYER distribution (run_in_background: true)
 ./googleplay_release.sh -a
 
 # Test APK — test environment: api-test.pronextusa.com (run_in_background: true)
@@ -112,9 +116,6 @@ cd /Users/ck/Git/pronext/mobile
 
 # Debug APK — local: 192.168.31.163:8000 (run_in_background: true)
 ./googleplay_release.sh -d
-
-# Signed AAB for Google Play Store (run_in_background: true)
-./googleplay_release.sh -s
 ```
 
 After launching, use `TaskOutput` (with `block: true, timeout: 600000`) to wait for completion. If that times out, keep polling with `TaskOutput` until the script finishes.
@@ -124,38 +125,42 @@ After launching, use `TaskOutput` (with `block: true, timeout: 600000`) to wait 
 Run iOS first, wait for completion, then run Android. **Build number is only incremented once by the iOS script's `-i` flag. Do NOT increment again for Android.**
 
 1. iOS: `./appstore_release.sh -i` or `./appstore_release.sh -i --upload-now` (if `-u`) — `run_in_background: true`, wait for completion
-2. Android: `./googleplay_release.sh -a` — `run_in_background: true`, wait for completion (then PGYER upload if `-u`)
+2. Android: `./googleplay_release.sh -s` (default AAB) or `./googleplay_release.sh -a` (if `-p`) — `run_in_background: true`, wait for completion
 
 ### Step 4: Post-Build Tag
 
 After a SUCCESSFUL build, ALWAYS create a git tag:
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 # Format: v{version}+{build_number}
 # Example: v1.5.6+1059
 git tag v<version>
 git tag  # verify
 ```
 
-### Step 5: Upload (if -u flag)
+### Step 5: Upload (if -u or -p flag)
 
 #### iOS Upload
 
 Handled by `./appstore_release.sh --upload-now` (already included in Step 3).
 
-#### Android Upload (PGYER)
+#### Android Upload to Google Play Store (default with -u)
 
-If `-u` flag is specified for Android builds:
+The signed AAB built by `./googleplay_release.sh -s` needs to be uploaded via Google Play Console manually, or report the AAB path for the user.
+
+#### Android Upload to PGYER (with -p flag)
+
+If `-p` flag is specified:
 
 ```bash
-cd /Users/ck/Git/pronext/mobile
+cd /Users/ck/Git/pronext/pronext/app
 
 # Read API key from pgyer.env
 source pgyer.env
 
 # Upload with buildUpdateDescription = build number
-curl -F "file=@<apk_or_aab_path>" \
+curl -F "file=@<apk_path>" \
      -F "_api_key=$API_Key" \
      -F "buildUpdateDescription=<build_number>" \
      https://www.pgyer.com/apiv2/app/upload

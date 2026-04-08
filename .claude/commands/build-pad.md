@@ -32,7 +32,7 @@ Parse `$ARGUMENTS`:
 
 ### Step 2: Pre-flight Checks
 
-Navigate to `/Users/ck/Git/pronext/pad` and verify:
+Navigate to `/Users/ck/Git/pronext/pronext/pad` and verify:
 
 1. `settings.gradle.kts` exists
 2. Git status is clean (no uncommitted changes — build script will fail otherwise)
@@ -46,7 +46,7 @@ Report to user:
 ### Step 3: Push to Environment Branch
 
 ```bash
-cd /Users/ck/Git/pronext/pad
+cd /Users/ck/Git/pronext/pronext/pad
 
 # Push current branch to the env branch (force-with-lease since env branches diverge)
 git push --force-with-lease origin HEAD:env/test   # for test
@@ -58,7 +58,7 @@ git push --force-with-lease origin HEAD:env/prod    # for prod
 Run the build script:
 
 ```bash
-cd /Users/ck/Git/pronext/pad
+cd /Users/ck/Git/pronext/pronext/pad
 
 # Test environment
 ./scripts/build.sh --upload --test
@@ -85,7 +85,7 @@ The script will:
 After a SUCCESSFUL build and upload, create a git tag:
 
 ```bash
-cd /Users/ck/Git/pronext/pad
+cd /Users/ck/Git/pronext/pronext/pad
 
 # Read versionName and versionCode from app/build.gradle.kts
 # Format: pad-v{versionName}-{versionCode}-{test|prod}
