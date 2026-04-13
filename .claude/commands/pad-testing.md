@@ -12,6 +12,25 @@ Fully automated UI test runner. Creates a fresh test device, generates activatio
 
 Execute these steps in order:
 
+### Step 0: Pre-flight checks (fail fast)
+
+Before doing anything else, verify the environment. If any check fails, STOP and report to the user:
+
+```bash
+# Backend must be running — if this isn't 200, ALL calendar tests will fail with
+# "event not visible" because the app can't sync events from the server.
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/pad-api/
+# Expect: 200
+```
+
+```bash
+# Emulator must be connected
+$HOME/Library/Android/sdk/platform-tools/adb devices | grep -v "^List" | grep "device$"
+# Expect: one "emulator-XXXX device" line
+```
+
+If either fails, STOP and tell the user what's wrong (don't attempt to start backend yourself — the user wants to see its logs).
+
 ### Step 1: Create test device, category, and get activation code
 
 ```bash
@@ -57,6 +76,10 @@ Clear stale app data so the fresh activation code is actually used:
 ADB=$HOME/Library/Android/sdk/platform-tools/adb
 $ADB shell pm clear it.expendables.pronext 2>/dev/null || true
 ```
+
+**IMPORTANT**: Each `./gradlew connectedDebugAndroidTest` invocation **reinstalls the app** (clearing data). So every gradle run needs a **fresh activation code** — activation codes are single-use after successful activation. If you run `./gradlew connectedDebugAndroidTest` a second time with the same code, the app reinstalls, fails to re-activate, and ALL tests will fail with "event not visible".
+
+If you need to run multiple times in a session, repeat Step 1 (new device) and Step 2 (update TestConfig) before each run.
 
 ### Step 4: Run tests
 
@@ -136,3 +159,11 @@ pad/app/src/androidTest/java/it/expendables/pronext/
 - **"Already exists" errors**: Previous test run left data — events use unique timestamped titles to avoid this
 - **"New calendar is syncing" dialog blocks tests**: `BaseUiTest.dismissSyncDialog()` handles this automatically. If it fails, the dialog may have changed — check `WelcomePopover.kt`
 - **ComposeTimeoutException not caught**: Use `catch (_: Throwable)` not `catch (_: Exception)` — Compose test exceptions extend Throwable directly
+- **Wholesale test failures ("event not visible" or ComposeTimeoutException on every test)**: Likely one of:
+  1. Backend down (Step 0 pre-flight should catch this now)
+  2. Activation code consumed — run Step 1 + Step 2 again for a fresh code
+  3. Emulator offline or DNS not resolving 10.0.2.2 — restart emulator
+- **Test pass rate degrades as tests run sequentially**: Test events accumulate on the device across classes. Later tests may see dozens of old events in the same week view, causing LazyColumn to not render the new event. Options:
+  - Run one test class at a time with fresh device (`run EventCreateTest`)
+  - Split long runs into smaller batches of classes
+  - (Future improvement: add `@After` cleanup to delete test events)
