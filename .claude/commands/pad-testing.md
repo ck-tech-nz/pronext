@@ -163,12 +163,4 @@ pad/app/src/androidTest/java/it/expendables/pronext/
   1. Backend down (Step 0 pre-flight should catch this now)
   2. Activation code consumed — run Step 1 + Step 2 again for a fresh code
   3. Emulator offline or DNS not resolving 10.0.2.2 — restart emulator
-- **Test pass rate degrades as tests run sequentially** (e.g. ~50% fail in a full 9-class run vs ~0% when a class runs alone): Test events accumulate on the device's backend across test classes. Recurring events (DAILY/WEEKLY) created by earlier tests expand into every future week in the WeekView, crowding the LazyColumn for later tests' day columns. The new event ends up off-screen (sorted by id, newest last) and isn't found by `hasText` assertions.
-
-  **Workarounds:**
-  - **Run one test class at a time** (most reliable) with a fresh device per run (`run EventCreateTest`)
-  - Split long runs into smaller batches of classes (e.g. 3-4 at a time, fresh device per batch)
-
-  **Why @After cleanup doesn't work:** Wiping local Room is futile — the next test's `addEvent` call triggers `syncEventsFromServer`, which reloads ALL events from the backend (including previous tests' events). A proper fix needs either:
-  - A backend bulk-delete endpoint called from @After
-  - A separate test device per test class
+- **Test pass rate degrades as tests run sequentially**: If you see this (should be rare now that `CalendarTestHelper.clearTestEvents` runs in `@After` and calls the backend's `delete_all_for_test` endpoint), make sure the backend is on a version that has that endpoint. Without it, recurring events from earlier tests expand into every future week, crowding the LazyColumn for later tests. Current full-batch pass rate is ~55/61 (remaining ~5 failures are unrelated monthly-edge-case flakiness).
