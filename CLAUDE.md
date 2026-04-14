@@ -15,6 +15,10 @@ Pronext is a cross-platform calendar and task management system for Pad devices.
 | `pad/`       | Native Android tablet app               | Kotlin                                              |
 | `docs/`      | API documentation                       | MkDocs                                              |
 
+## Terminology
+
+When the user says **admin** or **in admin** (or similar), they mean the **Django Admin site**: `backend/` `admin.py` / `ModelAdmin`, URLs under `/admin/`, and staff login there—not Pad or app “admin” screens, not the H5 site, and not generic “superuser” concepts unless they say otherwise.
+
 ## Architecture
 
 ```

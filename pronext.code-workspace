@@ -41,12 +41,31 @@
     "chatgpt.openOnStartup": false,
     "workbench.colorTheme": "Dark 2026",
   },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Boot iOS Simulator",
+        "type": "shell",
+        "command": "xcrun simctl boot C94001E8-9C75-46ED-8776-CD8CB122796E 2>/dev/null; open -a Simulator",
+        "presentation": { "reveal": "silent" },
+        "problemMatcher": [],
+      },
+      {
+        "label": "Boot Android Emulator",
+        "type": "shell",
+        "command": "emulator -avd Pad -no-snapshot-load &>/dev/null &",
+        "presentation": { "reveal": "silent" },
+        "problemMatcher": [],
+      },
+    ],
+  },
   "launch": {
     "version": "0.2.0",
     "compounds": [
       {
         "name": "Full Stack",
-        "configurations": ["backend", "npm: dev", "Flutter"],
+        "configurations": ["backend", "npm: dev", "Flutter (iOS)"],
         "stopAll": true,
       },
     ],
@@ -71,11 +90,22 @@
         "console": "integratedTerminal",
       },
       {
-        "name": "Flutter",
+        "name": "Flutter (iOS)",
         "type": "dart",
         "request": "launch",
         "cwd": "${workspaceFolder}/app",
         "program": "lib/main.dart",
+        "deviceId": "C94001E8-9C75-46ED-8776-CD8CB122796E",
+        "preLaunchTask": "Boot iOS Simulator",
+      },
+      {
+        "name": "Flutter (Android)",
+        "type": "dart",
+        "request": "launch",
+        "cwd": "${workspaceFolder}/app",
+        "program": "lib/main.dart",
+        "deviceId": "emulator-5554",
+        "preLaunchTask": "Boot Android Emulator",
       },
       {
         "name": "Celery Worker",

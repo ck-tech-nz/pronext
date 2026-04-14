@@ -108,6 +108,9 @@ cd /Users/ck/Git/pronext/pronext/app
 # Default: Signed AAB for Google Play Store (run_in_background: true)
 ./googleplay_release.sh -s
 
+# Signed AAB + upload to Google Play via fastlane supply (run_in_background: true)
+./googleplay_release.sh -s --upload
+
 # Release APK for PGYER distribution (run_in_background: true)
 ./googleplay_release.sh -a
 
@@ -125,7 +128,7 @@ After launching, use `TaskOutput` (with `block: true, timeout: 600000`) to wait 
 Run iOS first, wait for completion, then run Android. **Build number is only incremented once by the iOS script's `-i` flag. Do NOT increment again for Android.**
 
 1. iOS: `./appstore_release.sh -i` or `./appstore_release.sh -i --upload-now` (if `-u`) — `run_in_background: true`, wait for completion
-2. Android: `./googleplay_release.sh -s` (default AAB) or `./googleplay_release.sh -a` (if `-p`) — `run_in_background: true`, wait for completion
+2. Android: `./googleplay_release.sh -s` (default AAB), `./googleplay_release.sh -s --upload` (if `-u`), or `./googleplay_release.sh -a` (if `-p`) — `run_in_background: true`, wait for completion
 
 ### Step 4: Post-Build Tag
 
@@ -147,7 +150,9 @@ Handled by `./appstore_release.sh --upload-now` (already included in Step 3).
 
 #### Android Upload to Google Play Store (default with -u)
 
-The signed AAB built by `./googleplay_release.sh -s` needs to be uploaded via Google Play Console manually, or report the AAB path for the user.
+Handled by `./googleplay_release.sh -s --upload` (already included in Step 3). Uses `fastlane supply` to upload the signed AAB to the **internal** track. Requires:
+- `fastlane` installed (`brew install fastlane`)
+- Service account JSON key at `android/keys/flutter-play-upload-744f3c8729f7.json`
 
 #### Android Upload to PGYER (with -p flag)
 
