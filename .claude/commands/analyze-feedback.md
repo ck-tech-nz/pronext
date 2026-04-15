@@ -15,7 +15,7 @@ Read `OPEN_API_KEY` from `backend/.env`. This is the `X-API-Key` header value.
 Call the open API to get feedback issues:
 
 ```
-GET http://localhost:8000/app-api/open/feedback/list/
+GET https://api.pronextusa.com/app-api/open/feedback/list/
 Header: X-API-Key: <key from step 1>
 ```
 
