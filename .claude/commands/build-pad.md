@@ -12,8 +12,8 @@ Build, push, upload, and tag a ProNext Pad release APK in one step.
 
 Parse `$ARGUMENTS` to determine environment:
 
-- `test` or `t` — Push to `env/test`, register with test backend, tag `pad-vX.Y.Z-NNNN-test`
-- `prod` or `p` or empty — Push to `env/prod`, register with prod backend, tag `pad-vX.Y.Z-NNNN-prod`
+- `test` or `t` — Push to `env/test`, register with test backend, tag `pad-vX.Y.Z-NNNN`
+- `prod` or `p` or empty — Push to `env/prod`, register with prod backend, tag `pad-vX.Y.Z-NNNN`
 
 **Examples:**
 
@@ -88,10 +88,10 @@ After a SUCCESSFUL build and upload, create a git tag:
 cd /Users/ck/Git/pronext/pronext/pad
 
 # Read versionName and versionCode from app/build.gradle.kts
-# Format: pad-v{versionName}-{versionCode}-{test|prod}
+# Format: pad-v{versionName}-{versionCode}
 # Examples:
-#   pad-v2.2.0-1412-test
-#   pad-v2.2.0-1412-prod
+#   pad-v2.2.0-1412
+#   pad-v2.2.1-1428
 
 git tag <tag_name>
 git push origin <tag_name>
