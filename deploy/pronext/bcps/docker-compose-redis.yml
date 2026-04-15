@@ -1,0 +1,15 @@
+services:
+    redis:
+        # image: redis:7.4.0-alpine
+        image: redis:8.2.1-alpine
+        networks:
+          - traefik
+        ports:
+          - 26379:6379
+        command: redis-server --requirepass JWvyFWcXRA9fDFY9KmDcWtAxTCyTydAM
+        restart: always
+
+networks:
+    traefik:
+        external: true
+        name: traefik

@@ -1,0 +1,87 @@
+services:
+  api:
+    # image: realck-docker.pkg.coding.net/cktech/images/pronext-test
+    image: registry.cktech.co.nz/pronext/pronext-test
+    container_name: pronext
+    networks:
+      - pronext
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./pronext/logs:/app/logs
+    env_file:
+      - .env
+    # command: python3 manage.py runserver 0.0.0.0:8888
+    # command: gunicorn pronext_server.asgi:application -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8888 --access-logfile -
+    # command: gunicorn pronext_server.wsgi:application -w 4 --threads 2 --timeout 30 -b 0.0.0.0:8888 --access-logfile -
+    # 同步视图用 WSGI，连接数精确可控: 4 workers × 2 threads = 最多 8 个 DB 连接
+    command: gunicorn pronext_server.wsgi:application -w 4 --threads 2 --timeout 120 --max-requests 1000 --max-requests-jitter 50 -b 0.0.0.0:8888
+    restart: always
+    depends_on:
+      - redis
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.http.services.django.loadbalancer.server.port=8888
+      # Route all API traffic EXCEPT heartbeat to Django
+      - traefik.http.routers.django.service=django
+      - traefik.http.routers.django.entrypoints=web,websecure
+        #- traefik.http.routers.django.rule=Host(`api-test.pronextusa.com`) && !PathPrefix(`/pad-api/common/heartbeat/`)
+      - traefik.http.routers.django.rule=Host(`api-test.pronextusa.com`) && !PathPrefix(`/go-api/`) && !PathPrefix(`/tools-api/`) && !Path(`/pad-api/common/heartbeat`) && !Path(`/pad-api/common/heartbeat/`)
+      - traefik.http.routers.django.tls=true
+      # Admin site
+      - traefik.http.routers.admin.service=django
+      - traefik.http.routers.admin.entrypoints=web,websecure
+      - traefik.http.routers.admin.rule=Host(`admin-test.pronextusa.com`)
+      - traefik.http.routers.admin.tls=true
+
+  # 2. celery worker
+  celeryworker:
+    #image: realck-docker.pkg.coding.net/cktech/images/pronext-test
+    image: registry.cktech.co.nz/pronext/pronext-test
+    container_name: pronext-celeryworker
+    volumes:
+      - ./pronext/logs:/app/logs
+    networks:
+      - pronext
+    env_file:
+      - .env
+    # command: celery -A pronext_server worker -l info -E
+    command: celery -A pronext_server worker -l info -E --concurrency 2
+    restart: always
+    depends_on:
+      - api
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  # 3. celery beat
+  celerybeat:
+    #image: realck-docker.pkg.coding.net/cktech/images/pronext-test
+    image: registry.cktech.co.nz/pronext/pronext-test
+    container_name: pronext-celerybeat
+    volumes:
+      - ./pronext/logs:/app/logs
+    networks:
+      - pronext
+    env_file:
+      - .env
+    command: celery -A pronext_server beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    restart: always
+    depends_on:
+      - api
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  redis:
+    image: redis:8.0.3-alpine
+    container_name: pronext-redis
+    command: redis-server --requirepass JWvyFWcXRA9fDFY9KmDcWtAxTCyTydAM
+    restart: always
+    ports:
+      - 63799:6379
+    networks:
+      - pronext
+
+networks:
+  pronext:
+    name: pronext

@@ -1,0 +1,56 @@
+services:
+    traefik:
+        #image: traefik:3.4.3
+        image: traefik:3.5.0
+        container_name: traefik
+        ports:
+            - 80:80
+            - 443:443
+            - 8080:8080
+        networks:
+            - traefik
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "100m"
+                max-file: "3"
+        command:
+            - --providers.docker=true
+            - --providers.docker.exposedbydefault=false
+            - --providers.docker.watch=true
+
+            - --entrypoints.web.address=:80
+            - --entrypoints.websecure.address=:443
+            - --providers.file.directory=/certs
+            - --providers.file.watch=true
+            
+            # dashboard
+            # - --api=true
+            # - --api.insecure=true
+            # - --entrypoints.traefik.address=:8080
+
+            # Log
+            - --log.level=WARN
+            - --accesslog=false             # ← 新增有问题再开
+            # - --accesslog.format=common   # ← 推荐
+
+            #- --certificatesresolvers.aws.acme.dnschallenge.provider=route53
+            #- --certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare
+            # - --entrypoints.websecure.http.tls.certresolver=cf
+
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - ./certs:/certs:ro
+            #- ./letsencrypt:/letsencrypt
+        environment:
+            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            - AWS_REGION=${AWS_REGION}
+            - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_DNS_API_TOKEN}
+        restart: always
+
+
+networks:
+    traefik:
+        name: traefik
+

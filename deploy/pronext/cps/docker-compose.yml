@@ -1,0 +1,105 @@
+services:
+  api:
+    image: registry.cktech.co.nz/pronext/pronext-prod
+    container_name: pronext
+    networks:
+      - traefik
+    volumes:
+      - ./pronext/logs:/app/logs
+    env_file:
+      - .env
+    # environment:
+    #  - ASGI_THREADS=8
+    # command: gunicorn pronext_server.asgi:application -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8888 --access-logfile - 平时没有必要开 access-log 因为有大量的心跳信号，开了也没有用
+    command: gunicorn pronext_server.asgi:application -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8888 --access-logfile -
+    # 同步视图用 WSGI，连接数精确可控: 4 workers × 2 threads = 最多 8 个 DB 连接
+    # command: gunicorn pronext_server.wsgi:application -w 6 --threads 3 --timeout 120 --max-requests 1000 --max-requests-jitter 50 -b 0.0.0.0:8888
+    restart: always
+      #depends_on:
+      #- pgbouncer
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.http.services.django.loadbalancer.server.port=8888
+      # Route all API traffic EXCEPT heartbeat to Django
+      - traefik.http.routers.django.service=django
+      - traefik.http.routers.django.entrypoints=web,websecure
+      - traefik.http.routers.django.rule=Host(`api.pronextusa.com`) && !PathPrefix(`/go-api/`) && !PathPrefix(`/tools-api/`) && !Path(`/pad-api/common/heartbeat`) && !Path(`/pad-api/common/heartbeat/`)
+        #- traefik.http.routers.django.rule=Host(`api.pronextusa.com`)
+      - traefik.http.routers.django.tls=true
+      # Admin site
+      - traefik.http.routers.admin.service=django
+      - traefik.http.routers.admin.entrypoints=web,websecure
+      - traefik.http.routers.admin.rule=Host(`admin.pronextusa.com`)
+      - traefik.http.routers.admin.tls=true
+
+
+  # 2. celery worker
+  celeryworker:
+    image: registry.cktech.co.nz/pronext/pronext-prod
+    container_name: pronext-celeryworker
+    volumes:
+      - ./pronext/logs:/app/logs
+    networks:
+      - traefik
+    env_file:
+      - .env
+    # command: celery -A pronext_server worker -l info -E
+    command: celery -A pronext_server worker -l info -E --concurrency 2
+    restart: always
+    depends_on:
+      - api
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  # 3. celery beat
+  celerybeat:
+    image: registry.cktech.co.nz/pronext/pronext-prod
+    container_name: pronext-celerybeat
+    volumes:
+      - ./pronext/logs:/app/logs
+    networks:
+      - traefik
+    env_file:
+      - .env
+    command: celery -A pronext_server beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    restart: always
+    depends_on:
+      - api
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+
+  pgbouncer:
+    #image: bitnami/pgbouncer
+    image: registry.cktech.co.nz/images/pgbouncer
+    container_name: pg_bouncer
+    environment:
+      - POSTGRESQL_HOST=pg17
+      - POSTGRESQL_PORT=5432
+      - POSTGRESQL_USERNAME=postgres
+      - POSTGRESQL_PASSWORD=${POSTGRESQL_PASSWORD}
+      - POSTGRESQL_DATABASE=pronext
+      # PG Settings
+      - PGBOUNCER_DATABASE=pronext
+      - PGBOUNCER_POOL_MODE=transaction
+      - PGBOUNCER_MAX_CLIENT_CONN=4000
+      - PGBOUNCER_DEFAULT_POOL_SIZE=100
+      - PGBOUNCER_RESERVE_POOL_SIZE=10  # 加备用池，突发时用
+      - PGBOUNCER_MIN_POOL_SIZE=10  # 最小池，减反复创建
+      - PGBOUNCER_SERVER_IDLE_TIMEOUT=30  # 更快关闭闲置
+
+      - PGBOUNCER_AUTH_TYPE=scram-sha-256
+      # https://hub.docker.com/r/bitnami/pgbouncer
+      - PGBOUNCER_SERVER_LIFETIME=600
+      # - PGBOUNCER_SERVER_IDLE_TIMEOUT=60
+    restart: always
+    # ports:
+    #   - 6432:6432
+    networks:
+        - traefik
+
+networks:
+    traefik:
+        external: true
+        name: traefik

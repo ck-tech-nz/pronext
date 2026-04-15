@@ -1,0 +1,48 @@
+services:
+    pg17:
+        image: postgres:17.6-alpine
+        container_name: pg17
+        networks:
+          - traefik
+        ports:
+          - 35432:5432
+        volumes:
+          - pg17:/var/lib/postgresql/data
+          - ./custom-postgresql.conf:/etc/postgresql/postgresql.conf
+          - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+        environment:
+          - POSTGRES_USER=postgres
+          - POSTGRES_DB=pronext             # 默认数据库
+          - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          # PostgreSQL 17 优化参数
+          - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+        restart: always
+        mem_limit: 6g     # 限内存6GB
+        cpus: 4.0         # 限CPU 4.0
+        mem_reservation: 4g  # 预留4GB
+        # PostgreSQL 17 特有优化
+        command: >
+          postgres
+          -c shared_buffers=2GB
+          -c work_mem=16MB
+          -c maintenance_work_mem=512MB
+          -c effective_cache_size=4GB
+          -c random_page_cost=1.1
+          -c max_connections=100
+          -c checkpoint_completion_target=0.9
+          -c wal_buffers=16MB
+          -c default_statistics_target=100
+
+volumes:
+    pg17:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /data/pg17  # 注意：新的数据目录
+
+networks:
+    traefik:
+        external: true
+        name: traefik
+

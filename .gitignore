@@ -42,6 +42,11 @@ ui/
 .vscode/settings.json
 db-backup.yml
 
+# sync-deploy: secrets and TLS private keys (synced from servers, never committed)
+deploy/**/.env
+deploy/**/.env.*
+deploy/**/*.key
+
 # OS
 .DS_Store
 

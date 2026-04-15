@@ -1,0 +1,48 @@
+# Config for the sync-deploy skill.
+# Mirrors docker-compose stacks between this repo's deploy/ and our two hosts.
+#
+# Hosts:
+#   do      — DigitalOcean test host (root user, shared box with other projects;
+#             only pronext-related dirs are managed here)
+#   pronext — production host (ubuntu user, dedicated to pronext)
+#
+# Stacks:
+#   bcps — base/common platform services (db, redis, traefik, watchtower, TLS)
+#   cps  — pronext app services (django api, heartbeat, tools)
+
+environments:
+
+  do-bcps:
+    ssh_host: do
+    remote_path: /root/docker_compose/bcps
+    local_path: deploy/do/bcps
+    exclude:
+      - "db.sqlite3"
+      - "media/"
+      - "nginx/"
+      - "postgres17-data/"
+      - "traefik/"
+
+  do-cps:
+    ssh_host: do
+    remote_path: /root/docker_compose/cps
+    local_path: deploy/do/cps
+    exclude:
+      - "pronext/"        # only contains runtime logs/
+
+  pronext-bcps:
+    ssh_host: pronext
+    remote_path: /home/ubuntu/bcps
+    local_path: deploy/pronext/bcps
+    confirm: true         # prod — require explicit confirmation before upload
+    exclude:
+      - "letsencrypt/"    # legacy ACME state, root-owned (perm denied), traefik no longer uses it
+
+  pronext-cps:
+    ssh_host: pronext
+    remote_path: /home/ubuntu/cps
+    local_path: deploy/pronext/cps
+    confirm: true
+    exclude:
+      - "test/"           # debug scripts, not part of deploy
+      - "pronext/"        # only contains runtime logs/

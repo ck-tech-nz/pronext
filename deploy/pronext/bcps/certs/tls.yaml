@@ -1,0 +1,4 @@
+tls:
+  certificates:
+    - certFile: /certs/pronextusa.com.pem
+      keyFile: /certs/pronextusa.com.key

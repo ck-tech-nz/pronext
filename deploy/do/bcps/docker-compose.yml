@@ -1,0 +1,133 @@
+services:
+  traefik:
+    image: traefik:3.6.11
+    # image: realck-docker.pkg.coding.net/cktech/images/traefik:latest
+    container_name: traefik
+    restart: always
+    networks:
+      - fastgpt
+      - traefik
+      - minio
+      - homepage
+      - django_cms
+      - pronext
+    command:
+      - --providers.docker
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+        #- --entrypoints.port9000.address=:9000      # ← 新增
+        #- --entrypoints.port9001.address=:9001      # ← 新增
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      - --certificatesresolvers.lets-encr.acme.email=willcute@gmail.com
+      - --certificatesresolvers.lets-encr.acme.storage=acme.json
+      - --certificatesresolvers.lets-encr.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.lets-encr.acme.httpchallenge.entrypoint=web
+
+      - --log.level=INFO
+#      - --accesslog=true            # ← 新增有问题再开
+#      - --accesslog.format=common   # ← 推荐
+
+      - --providers.file.directory=/certs
+      - --providers.file.watch=true
+
+      # dashboard
+      - --api=true
+      - --entrypoints.traefik.address=:8088
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8088:8088"
+    volumes:
+      - ./traefik/log:/var/log
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik/dynamic:/dynamic
+      - ./acme.json:/acme.json
+      - ./certs:/certs:ro
+    depends_on:
+      - watchtower
+
+  postgres:
+    image: postgres:17.4
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres17-data:/var/lib/postgresql/data
+    networks:
+      - traefik
+      - django_cms
+      - pronext
+
+  invoice:
+    container_name: invoice
+    # image: australia-southeast1-docker.pkg.dev/wai-registry/wai-images/django-prod
+    image: realck-docker.pkg.coding.net/cktech/images/invoice-prod:latest
+    networks:
+      - traefik
+    expose:
+      - 8888
+    env_file: .env
+    volumes:
+      - "./media:/code/media"
+      - "./db.sqlite3:/code/db.sqlite3"
+    labels:
+      - traefik.http.routers.invoice.middlewares=invoice-compress
+      - traefik.http.routers.invoice.entrypoints=websecure
+      - traefik.http.routers.invoice.rule=Host(`invoice.cktech.co.nz`) || Host(`invoice.cktec.co.nz`)
+      - traefik.http.routers.invoice.tls.certresolver=lets-encr
+      - traefik.http.middlewares.invoice-compress.compress=true
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    image: containrrr/watchtower
+    # image: realck-docker.pkg.coding.net/cktech/images/watchtower:1.7.1
+    container_name: watchtower
+    restart: always
+    volumes:
+      - ~/.docker/config.json:/config.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=Pacific/Auckland
+      - DOCKER_CONFIG=/
+    command: --cleanup -i 30 --label-enable --include-stopped --revive-stopped # check new image every 30s
+
+
+  nginx:
+    image: nginx:latest
+    # image: realck-docker.pkg.coding.net/cktech/images/nginx:1.27.3
+    container_name: nginx
+    restart: always
+    networks:
+      - traefik
+    ports:
+      - "8080:80"  # Adjust the port as needed
+    volumes:
+      - ./nginx/log:/var/log/nginx
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/www-cktec:/usr/share/nginx/html
+    labels:
+      - traefik.http.routers.nginx.middlewares=nginx-compress
+      - traefik.http.routers.nginx.entrypoints=websecure
+      - traefik.http.routers.nginx.rule=Host(`cktech.co.nz`) || Host(`cktec.co.nz`) || Host(`www.cktech.co.nz`) || Host(`www.cktec.co.nz`)
+      - traefik.http.routers.nginx.tls.certresolver=lets-encr
+      - traefik.http.middlewares.nginx-compress.compress=true
+
+networks:
+  traefik:
+    name: traefik
+  fastgpt:
+    external: true
+  minio:
+    external: true
+  homepage:
+    external: true
+  django_cms:
+    external: true
+  pronext:
+    external: true

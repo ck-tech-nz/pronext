@@ -1,0 +1,11 @@
+services:
+    watchtower:
+        image: containrrr/watchtower:1.7.1
+        volumes:
+            - ~/.docker/config.json:/config.json
+            - /var/run/docker.sock:/var/run/docker.sock
+        environment:
+            - WATCHTOWER_NOTIFICATION_REPORT=true
+            - WATCHTOWER_NOTIFICATION_URL=bark://:fPvJVkY2zAvL7B8NnnhB3c@api.day.app
+        command: --cleanup -i 30 --label-enable --include-stopped --revive-stopped
+        restart: always
