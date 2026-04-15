@@ -18,7 +18,7 @@ services:
     # -w 4 --threads 16: 4 workers × 16 threads = 64 concurrent request capacity.
     # --timeout 120: prevent spurious worker kills during slow requests.
     # --max-requests 1000/jitter 100: recycle workers periodically.
-    command: gunicorn pronext_server.wsgi:application -w 6 --threads 12 --timeout 120 --max-requests 1000 --max-requests-jitter 100 -b 0.0.0.0:8888 --access-logfile -
+    command: gunicorn pronext_server.wsgi:application -w 6 --threads 24 --timeout 120 --max-requests 2000 --max-requests-jitter 200 -b 0.0.0.0:8888 --access-logfile -
     # 同步视图用 WSGI，连接数精确可控: 4 workers × 2 threads = 最多 8 个 DB 连接
     # command: gunicorn pronext_server.wsgi:application -w 6 --threads 3 --timeout 120 --max-requests 1000 --max-requests-jitter 50 -b 0.0.0.0:8888
     restart: always
