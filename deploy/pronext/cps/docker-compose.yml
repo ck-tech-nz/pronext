@@ -87,15 +87,29 @@ services:
       - PGBOUNCER_DATABASE=pronext_backup_20260410_192940
       - PGBOUNCER_POOL_MODE=transaction
       - PGBOUNCER_MAX_CLIENT_CONN=4000
-      # Raised from 100 → 400: pgbouncer was queueing 800+ clients with 22s maxwait,
-      # causing mobile app 10s timeouts. Cloud SQL max_connections=800, so 400 leaves
-      # ~300 headroom for admin/readonly + reserve pool.
-      - PGBOUNCER_DEFAULT_POOL_SIZE=400
+      # POOL_SIZE=200 (down from 400): Cloud SQL's SCRAM-SHA-256 auth can't
+      # keep up with 400 simultaneous new-connection bursts (Django restart storms),
+      # causing server_connect_timeout → server_login_retry backoff spirals.
+      # 200 is enough for normal steady-state (we saw sv_active peak ~60-80 earlier).
+      - PGBOUNCER_DEFAULT_POOL_SIZE=200
       - PGBOUNCER_RESERVE_POOL_SIZE=50
       - PGBOUNCER_MIN_POOL_SIZE=20
+      # Default 15s server_connect_timeout caused backoff storms during reconnect bursts.
+      # Raise to 60s so slow TLS/auth under load doesn't kick pgbouncer into retry mode.
+      - PGBOUNCER_SERVER_CONNECT_TIMEOUT=60
+      # After a server login failure, retry after 5s instead of default 15s.
+      - PGBOUNCER_SERVER_LOGIN_RETRY=5
       - PGBOUNCER_SERVER_IDLE_TIMEOUT=30  # 更快关闭闲置
 
-      - PGBOUNCER_AUTH_TYPE=scram-sha-256
+      # trust: skip SCRAM-SHA-256 on the client side (Django → pgbouncer).
+      # pgbouncer is only reachable on the private traefik docker network
+      # (no exposed port), so local trust is safe. pgbouncer still authenticates
+      # to Cloud SQL upstream with scram-sha-256 using POSTGRESQL_PASSWORD.
+      # scram-sha-256 had been the client auth, but under Django restart bursts
+      # the single-threaded pgbouncer couldn't keep up — 1000+ concurrent SCRAM
+      # negotiations bottlenecked pgbouncer's CPU, causing client_login_timeout
+      # and "failed to send welcome message" storms.
+      - PGBOUNCER_AUTH_TYPE=trust
       # https://hub.docker.com/r/bitnami/pgbouncer
       - PGBOUNCER_SERVER_LIFETIME=600
       # - PGBOUNCER_SERVER_IDLE_TIMEOUT=60
