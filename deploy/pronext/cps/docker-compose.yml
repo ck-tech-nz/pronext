@@ -75,18 +75,24 @@ services:
     image: registry.cktech.co.nz/images/pgbouncer
     container_name: pg_bouncer
     environment:
-      - POSTGRESQL_HOST=pg17
+      # pgbouncer now fronts Cloud SQL instead of the unused local pg17.
+      # This caps Cloud SQL server connections at DEFAULT_POOL_SIZE regardless
+      # of how many client connections Django opens locally.
+      - POSTGRESQL_HOST=34.71.133.22
       - POSTGRESQL_PORT=5432
       - POSTGRESQL_USERNAME=postgres
       - POSTGRESQL_PASSWORD=${POSTGRESQL_PASSWORD}
-      - POSTGRESQL_DATABASE=pronext
+      - POSTGRESQL_DATABASE=pronext_backup_20260410_192940
       # PG Settings
-      - PGBOUNCER_DATABASE=pronext
+      - PGBOUNCER_DATABASE=pronext_backup_20260410_192940
       - PGBOUNCER_POOL_MODE=transaction
       - PGBOUNCER_MAX_CLIENT_CONN=4000
-      - PGBOUNCER_DEFAULT_POOL_SIZE=100
-      - PGBOUNCER_RESERVE_POOL_SIZE=10  # 加备用池，突发时用
-      - PGBOUNCER_MIN_POOL_SIZE=10  # 最小池，减反复创建
+      # Raised from 100 → 400: pgbouncer was queueing 800+ clients with 22s maxwait,
+      # causing mobile app 10s timeouts. Cloud SQL max_connections=800, so 400 leaves
+      # ~300 headroom for admin/readonly + reserve pool.
+      - PGBOUNCER_DEFAULT_POOL_SIZE=400
+      - PGBOUNCER_RESERVE_POOL_SIZE=50
+      - PGBOUNCER_MIN_POOL_SIZE=20
       - PGBOUNCER_SERVER_IDLE_TIMEOUT=30  # 更快关闭闲置
 
       - PGBOUNCER_AUTH_TYPE=scram-sha-256
