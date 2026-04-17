@@ -12,7 +12,7 @@
 
 environments:
 
-  do-bcps:
+  test-bcps:
     ssh_host: do
     remote_path: /root/docker_compose/bcps
     local_path: deploy/do/bcps
@@ -23,14 +23,14 @@ environments:
       - "postgres17-data/"
       - "traefik/"
 
-  do-cps:
+  test-cps:
     ssh_host: do
     remote_path: /root/docker_compose/cps
     local_path: deploy/do/cps
     exclude:
       - "pronext/"        # only contains runtime logs/
 
-  pronext-bcps:
+  prod-bcps:
     ssh_host: pronext
     remote_path: /home/ubuntu/bcps
     local_path: deploy/pronext/bcps
@@ -38,7 +38,7 @@ environments:
     exclude:
       - "letsencrypt/"    # legacy ACME state, root-owned (perm denied), traefik no longer uses it
 
-  pronext-cps:
+  prod-cps:
     ssh_host: pronext
     remote_path: /home/ubuntu/cps
     local_path: deploy/pronext/cps
