@@ -11,15 +11,16 @@ services:
     # environment:
     #  - ASGI_THREADS=8
     # command: gunicorn pronext_server.asgi:application -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8888 --access-logfile - 平时没有必要开 access-log 因为有大量的心跳信号，开了也没有用
-    # ASGI (current): retrying ASGI now that event/list traffic dropped 83% after
-    # the should_refresh_event with_remind=False fix. ASGI + uvicorn is faster
-    # for IO-bound work. WATCH: if thread count per worker grows past 200, roll
-    # back to WSGI line below.
-    command: gunicorn pronext_server.asgi:application -k uvicorn.workers.UvicornWorker -w 6 --timeout 120 --max-requests 2000 --max-requests-jitter 200 -b 0.0.0.0:8888 --access-logfile -
-    # WSGI fallback (KEEP THIS LINE): bounded 24 threads/worker, proven stable
-    # under the old high-traffic regime. To roll back: comment out the ASGI line
-    # above and uncomment the WSGI line below, then `docker compose up -d api`.
-    # command: gunicorn pronext_server.wsgi:application -w 6 --threads 24 --timeout 120 --max-requests 2000 --max-requests-jitter 200 -b 0.0.0.0:8888 --access-logfile -
+    # WSGI gthread: bounded thread count to avoid ASGI's unbounded thread growth.
+    #   With ASGI + uvicorn + sync_to_async, thread count grew ~45 threads/sec
+    #   per worker unbounded (starting at ~50, reaching 800+ in 60s) regardless
+    #   of whether Sentry was enabled — GIL contention starved requests.
+    # -w 4 --threads 16: 4 workers × 16 threads = 64 concurrent request capacity.
+    # --timeout 120: prevent spurious worker kills during slow requests.
+    # --max-requests 1000/jitter 100: recycle workers periodically.
+    command: gunicorn pronext_server.wsgi:application -w 6 --threads 24 --timeout 120 --max-requests 2000 --max-requests-jitter 200 -b 0.0.0.0:8888 --access-logfile -
+    # 同步视图用 WSGI，连接数精确可控: 4 workers × 2 threads = 最多 8 个 DB 连接
+    # command: gunicorn pronext_server.wsgi:application -w 6 --threads 3 --timeout 120 --max-requests 1000 --max-requests-jitter 50 -b 0.0.0.0:8888
     restart: always
       #depends_on:
       #- pgbouncer
