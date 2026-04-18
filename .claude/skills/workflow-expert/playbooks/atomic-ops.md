@@ -4,10 +4,10 @@ Other playbooks reference these subroutines by name. They are not standalone com
 
 ## identify-repo
 
-pronext is a monorepo whose sub-directories (`backend/`, `pad/`, `app/`, `h5/`, `heartbeat/`, `docs/`) are each independent git repos.
+pronext is a monorepo. Valid repo targets are the **parent `pronext` repo itself** (root: `.`) **and** each sub-directory (`backend/`, `pad/`, `app/`, `h5/`, `heartbeat/`, `docs/`) — each is an independent git repo.
 
-1. If the user has named a repo (or it is obvious from context), `cd` into it.
-2. Otherwise, **ask the user which repo** before proceeding.
+1. If the user has named a repo (or it is obvious from context), `cd` into it. For the parent `pronext` repo, stay at the monorepo root.
+2. Otherwise, **ask the user which repo** before proceeding. Include "parent `pronext`" as an option.
 
 ## check-clean
 

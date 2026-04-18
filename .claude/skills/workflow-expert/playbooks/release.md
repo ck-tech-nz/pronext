@@ -6,13 +6,14 @@ Push main to an environment branch, tag it, and aggregate release notes.
 
 | Component | Path | Tag format |
 |---|---|---|
+| Pronext (parent monorepo) | `.` | `v{semver}+{build}` |
 | Pad | `pad/` | `v{semver}+{build}` |
 | Mobile | `app/` | `v{semver}+{build}` |
 | Server | `backend/` | `v{date}[-{suffix}]` |
 | H5 | `h5/` | `v{date}[-{suffix}]` |
 | Heartbeat | `heartbeat/` | `v{date}[-{suffix}]` |
 
-Release-note files live at `{component}/docs/releases/`.
+Release-note files live at `{component}/docs/releases/`. For the parent `pronext` repo, use `docs/releases/` at the monorepo root.
 
 ## Flow
 
