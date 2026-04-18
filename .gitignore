@@ -52,7 +52,6 @@ deploy/**/*.key
 
 app/
 backend/
-docs/
 heartbeat/
 pad/
 tools/
