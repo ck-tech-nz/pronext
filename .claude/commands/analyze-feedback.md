@@ -89,6 +89,51 @@ EOF
 
 After creating each issue, report the issue URL back to the user.
 
-## Step 5: Update Feedback Status (optional)
+## Step 5: Update Feedback Status + Link to GitHub Issue (optional)
 
-Ask the user if they want to mark the processed feedback items as "in progress" in the admin. If yes, tell them which SNs to update — we don't have a write API.
+After the GitHub issue is created, offer to update the processed feedback items via the open API write endpoints. Ask the user which target status to use:
+
+- `1` (in_progress) — investigation started, no fix yet
+- `2` (resolved) — root cause fixed, users can retry
+- `3` (closed) — not actionable / duplicate / invalid
+- `4` (need_more_info) — waiting on the reporter
+
+For each feedback id in the cluster, run the two calls below. `$KEY` is the `OPEN_API_KEY` from Step 1. `$ISSUE_URL` is the GitHub issue URL returned by Step 4.
+
+**Status + final conclusion update** — `PATCH /app-api/open/feedback/{id}/update/`. The body accepts `status` and/or `final_conclusion` (at least one required). Use `final_conclusion` when resolving/closing to record the official resolution summary visible in admin.
+
+```bash
+# Status only
+curl -s -X PATCH -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"status": 1}' \
+  "https://api.pronextusa.com/app-api/open/feedback/$ID/update/"
+
+# Status + final conclusion (typical on resolve / close)
+curl -s -X PATCH -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"status": 2, "final_conclusion": "Fixed in backend commit d920419."}' \
+  "https://api.pronextusa.com/app-api/open/feedback/$ID/update/"
+```
+
+**Developer comment for traceability** — `POST /app-api/open/feedback/{id}/developer-comments/`. Developer comments are internal-only (not visible to the reporting user), so they are the right place to link the GitHub issue:
+
+```bash
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d "{\"content\": \"Tracked in $ISSUE_URL\"}" \
+  "https://api.pronextusa.com/app-api/open/feedback/$ID/developer-comments/"
+```
+
+**Do NOT** post admin comments from this skill — those are user-visible and should be written by hand with context appropriate for the reporting user.
+
+If the user wants to edit or remove a developer comment posted earlier:
+
+```bash
+# Update
+curl -s -X PATCH -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"content": "updated note"}' \
+  "https://api.pronextusa.com/app-api/open/feedback/developer-comments/$COMMENT_ID/"
+# Delete
+curl -s -X DELETE -H "X-API-Key: $KEY" \
+  "https://api.pronextusa.com/app-api/open/feedback/developer-comments/$COMMENT_ID/"
+```
+
+The developer comment `id` is returned in the create response under `data.id`.
