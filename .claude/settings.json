@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/skills/workflow-expert/hooks/post-merge-notify.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

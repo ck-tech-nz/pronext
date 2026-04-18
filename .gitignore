@@ -57,3 +57,6 @@ heartbeat/
 pad/
 tools/
 h5/
+
+# workflow-expert skill — personal tokens
+.claude/skills/*/config.env
