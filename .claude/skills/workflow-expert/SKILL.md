@@ -9,7 +9,7 @@ argument-hint: "wf-start i99 | wf-pr | wf-reviews 45 | fix 'login crash' | feat 
 
 Single project-level skill that owns the entire issue-to-deploy developer workflow for pronext. Everything lives under this directory; copying it is sufficient to reproduce the workflow elsewhere.
 
-**IMPORTANT — monorepo:** pronext is a monorepo whose sub-directories (`backend/`, `pad/`, `app/`, `h5/`, `heartbeat/`, `docs/`) are each independent git repos. If the user has not named a repo and it is not obvious from context, **ASK before proceeding**.
+**IMPORTANT — monorepo:** pronext is a monorepo. Valid repo targets are the **parent `pronext` repo itself** (root: `.`) **and** each sub-directory (`backend/`, `pad/`, `app/`, `h5/`, `heartbeat/`, `docs/`) — each is an independent git repo. If the user has not named a repo and it is not obvious from context, **ASK before proceeding**.
 
 **Prerequisite:** `gh auth status` must pass. For Sentry / DevTrakr sources, the developer must copy `config.env.example` → `config.env` and fill in tokens (see `README.md`).
 
