@@ -1,4 +1,5 @@
 ---
+name: analyze-feedback
 description: Fetch user feedback issues from backend API, analyze and cluster similar ones, then create combined GitHub issues.
 ---
 
