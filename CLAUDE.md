@@ -126,12 +126,10 @@ docker compose logs -f api              # Django logs
 
 ### Commit Rules
 
-**Do NOT commit until the user confirms.** After completing a change:
-
-1. Run any automated tests yourself.
-2. Tell the user what changed, how to test it, and expected results.
-3. Wait for the user to say **"Commit"** (or equivalent confirmation).
-4. Only then commit. Check if release notes need updating (see release-notes skill).
+- Commit freely as work progresses — no need to wait for explicit confirmation on each commit.
+- After completing a change, run any automated tests yourself and tell the user what changed, how to test it, and expected results.
+- Check if release notes need updating (see release-notes skill).
+- Still confirm with the user before **pushing** to shared branches (see global CLAUDE.md: `env/prod` requires confirmation).
 
 This applies to all repos (backend, pad, app, h5, heartbeat, etc.).
 
@@ -139,7 +137,7 @@ This applies to all repos (backend, pad, app, h5, heartbeat, etc.).
 
 Every fix or feature conversation should end with:
 
-- All changes committed (after user confirmation).
+- All changes committed.
 - All automated tests passing.
 - A clear list of anything that still needs manual testing, with steps and expected results.
 
