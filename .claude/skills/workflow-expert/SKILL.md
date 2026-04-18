@@ -21,7 +21,7 @@ Single project-level skill that owns the entire issue-to-deploy developer workfl
 | `/feat "<desc>"` | `playbooks/feat.md` | Start a feature branch from main |
 | `/hotfix "<desc>"` | `playbooks/hotfix.md` | Interrupt current work for an urgent fix |
 | `/review "<branch>"` | `playbooks/review.md` | Review another branch against main, then squash-merge |
-| `/release "<repo> to test\|prod"` | `playbooks/release.md` | Deploy main to env branch + tag + aggregate release notes |
+| `/release "<repo> to test\|prod"` | `playbooks/release.md` | Deploy main to env branch + tag + aggregate release notes (server/h5/heartbeat/parent only — NOT pad or app, those use `build-pad` / `build-app`). Pre-merge test push allowed for `env/test`. |
 | `/wf-start "<input>"` | `playbooks/wf-start.md` | Start work from a requirement (issue#, sentry#, devtrakr#, or free text) |
 | `/wf-pr` | `playbooks/wf-pr.md` | Self-review + create PR with release-note block |
 | `/wf-reviews [<pr#>]` | `playbooks/wf-reviews.md` | Address reviewer comments on your own PR |
@@ -69,7 +69,7 @@ Every user-facing PR body contains:
 <!-- RELEASE_NOTE_END -->
 ```
 
-Add `<!-- RELEASE_NOTE_LOCKED -->` to prevent regeneration. The `release` playbook scans these markers at release time to aggregate `{component}/docs/releases/{tag}.md`.
+Add `<!-- RELEASE_NOTE_LOCKED -->` to prevent regeneration. The `release` playbook scans these markers at release time and **prepends** each release's entry (under a `## {tag}` heading) into the month-bucketed file `{component}/docs/releases/{YYYY-MM}.md` so newest releases are always at the top.
 
 ## Non-goals
 
