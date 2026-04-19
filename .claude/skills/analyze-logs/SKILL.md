@@ -46,18 +46,22 @@ The user invokes one of:
 
 **Date mode:**
 
-1. Validate the date against `^\d{4}-\d{2}-\d{2}$`. If invalid, abort with an error.
+1. Validate the date against `^\d{4}-\d{2}-\d{2}$` **in code before any shell interpolation happens**. If invalid, abort with an error. Do not soft-check, do not "fix up" the input, do not pass the raw user argument through to the shell.
 2. Target local path: `./backend/logs/pronext_server_<date>.log`.
 3. If the file exists locally, reuse it. Do not re-download.
-4. Otherwise run **exactly** this command, with no other flags, globs, or expansions:
+4. Otherwise run **exactly** this sequence, using the bash regex guard shown here — the guard **must** execute before the `scp`, in the same shell invocation:
 
    ```bash
-   scp pronext:~/cps/pronext/logs/pronext_server_<date>.log ./backend/logs/
+   DATE="<date>"
+   [[ "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "invalid date: $DATE" >&2; exit 1; }
+   scp "pronext:~/cps/pronext/logs/pronext_server_${DATE}.log" ./backend/logs/
    ```
+
+   No other flags, globs, or expansions. Do not construct the scp command by string-concatenating an unvalidated argument.
 
 5. On `scp` failure (SSH down, file missing on server), print the error and abort.
 
-**Under no circumstances** run `ssh pronext ...` or any other `scp pronext:...` path. See the safety block at the top of this file.
+**Under no circumstances** run `ssh pronext ...` or any other `scp pronext:...` path. See the safety block at the top of this file. In particular, passing the date argument unquoted, or through an intermediate template, without the `^\d{4}-\d{2}-\d{2}$` gate executing first, is forbidden.
 
 ## Step 2: Run the Clustering Script
 

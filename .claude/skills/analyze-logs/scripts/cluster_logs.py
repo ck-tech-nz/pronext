@@ -27,7 +27,7 @@ LINE_RE = re.compile(
     r'(.*)$'
 )
 
-URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
+URL_RE = re.compile(r'''https?://[^\s'"<>]+''', re.IGNORECASE)
 HYPHEN_UUID_RE = re.compile(
     r'\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b',
     re.IGNORECASE,
