@@ -19,5 +19,5 @@ dist/
 *.sqlite3
 .vscode/
 site/
-superpowers/
+superpowers/*
 !superpowers/specs/
