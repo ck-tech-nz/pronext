@@ -80,7 +80,7 @@ if paths:
 return Response(status=204)
 ```
 
-- `_suppress_media_s3_signal()` — context manager that disconnects `delete_media_from_s3` from `post_delete` for the duration, then reconnects. Scoped to the request; doesn't affect other concurrent deletes.
+- `_suppress_media_s3_signal()` — context manager that disconnects `delete_media_from_s3` from `post_delete` for the duration, then reconnects. The disconnect is process-wide — concurrent Media deletes from other threads will also skip the S3 signal while destroy() runs. Acceptable because destroy() is rare and any resulting orphans are handled by the reconciliation safety net.
 - `delete_s3_media_task` — new Celery task, `bind=True, max_retries=3, default_retry_delay=30`. Iterates paths, calls `S3Storage().delete`, collects failures, retries if any. Matches the existing `cleanup_unused_categories_task` pattern.
 
 **Why Celery over `threading.Thread(daemon=True)`:** durability across web-worker restarts, built-in retries, visibility, decoupling. The legacy `bulk_delete_with_files` daemon-thread pattern is kept unchanged but not copied for new code.
