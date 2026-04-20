@@ -126,9 +126,10 @@ In [app/main.py](../../../tools/app/main.py), the `/image-to-event` handler:
 1. Builds `ProviderConfig` for primary (always) and backup (only when enabled).
 2. Calls `extract_with_failover(...)`.
 3. On success, returns `JSONResponse(content={"data": ...})` **and** sets response header `X-AI-Provider: primary|backup`.
-4. Exception mapping (unchanged semantics for existing codes):
-   - `ProviderUnavailable` with "busy" → 429
-   - `ProviderUnavailable` other → 502
+4. Exception mapping (preserves existing status codes):
+   - `ProviderUnavailable("busy")` → 429
+   - `ProviderUnavailable("timeout")` → 504
+   - `ProviderUnavailable` other (unreachable / 5xx) → 502
    - `ProviderResponseError` containing "No event content" → 400 (existing no-event behavior)
    - `ProviderResponseError` other → 500
 
