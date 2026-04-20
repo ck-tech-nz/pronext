@@ -1,0 +1,47 @@
+services:
+    pg18:
+        image: postgres:18-alpine
+        container_name: pg18
+        networks:
+          - traefik
+        ports:
+          - 45432:5432
+        volumes:
+          - pg18:/var/lib/postgresql/data
+          - ./custom-postgresql.conf:/etc/postgresql/postgresql.conf
+          - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+        environment:
+          - POSTGRES_USER=postgres
+          - POSTGRES_DB=pronext             # 默认数据库
+          - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          # PostgreSQL 18 优化参数
+          - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+          # 强制 PGDATA 落在 bind mount 子目录，避免 alpine 镜像的匿名 volume
+          # （镜像默认 PGDATA=/var/lib/postgresql/18/docker，不在我们挂载的 /data/pg18 里）
+          - PGDATA=/var/lib/postgresql/data/pgdata
+        restart: always
+        mem_limit: 6g     # 限内存6GB
+        cpus: 4.0         # 限CPU 4.0
+        mem_reservation: 4g  # 预留4GB
+        # 通用调优统一放 custom-postgresql.conf；下面只留 PG18 专属新参数
+        command: >
+          postgres
+          -c config_file=/etc/postgresql/postgresql.conf
+          -c hba_file=/etc/postgresql/pg_hba.conf
+          -c io_method=worker
+          -c effective_io_concurrency=16
+          -c maintenance_io_concurrency=16
+          -c track_wal_io_timing=on
+
+volumes:
+    pg18:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /data/pg18  # 注意：新的数据目录
+
+networks:
+    traefik:
+        external: true
+        name: traefik
