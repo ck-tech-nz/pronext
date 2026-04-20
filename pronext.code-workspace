@@ -90,7 +90,7 @@
         "console": "integratedTerminal",
       },
       {
-        "name": "Flutter (iOS)",
+        "name": "iOS",
         "type": "dart",
         "request": "launch",
         "cwd": "${workspaceFolder}/app",
@@ -99,13 +99,12 @@
         "preLaunchTask": "Boot iOS Simulator",
       },
       {
-        "name": "Flutter (Android)",
+        "name": "Android",
         "type": "dart",
         "request": "launch",
         "cwd": "${workspaceFolder}/app",
         "program": "lib/main.dart",
-        "deviceId": "emulator-5554",
-        "preLaunchTask": "Boot Android Emulator",
+        "deviceId": "emulator-5556"
       },
       {
         "name": "Celery Worker",
