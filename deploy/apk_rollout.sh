@@ -24,15 +24,21 @@
 #   - All timestamps are printed in Asia/Shanghai (CST).
 #   - Every run writes to a log: default ./apk_rollout_<YYYYMMDD-HHMMSS>.log
 #     in CWD; override with --log FILE; disable with --log /dev/null.
-#   - The --watchdog brake uses DIRECT psql (not Django ORM) so it
-#     still works when Django's connection pool is itself starved.
+#   - The --watchdog brake mutates Redis cache ':1:latest_apk:published'
+#     directly (PG-independent). check_update honors the cache's is_paused
+#     flag before touching PG, so the brake works even under full PG
+#     saturation. A best-effort DB UPDATE follows for persistence; if
+#     that fails, operator is prompted to fix up via Django admin.
 # =============================================
 
 set -euo pipefail
 
 # ---- Tunables -------------------------------------------------------------
-CONTAINER_NAME="pronext"
-PG_CONTAINER="pg18"
+# Override any of these via env when container names differ (e.g. test env):
+#   PG_CONTAINER=postgres REDIS_CONTAINER=pronext-redis ./apk_rollout.sh ...
+CONTAINER_NAME="${CONTAINER_NAME:-pronext}"
+PG_CONTAINER="${PG_CONTAINER:-pg18}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-bcps-redis-1}"
 MIN_INTERVAL=5
 ACTIVE_DAYS=30
 WATCHDOG_WINDOW="60s"
@@ -49,7 +55,7 @@ Usage:
 Options (follow mode):
   -t, --interval N   poll interval seconds (min $MIN_INTERVAL; smaller values are clamped)
   --all              count ALL PadDevice rows (default: excludes stale > ${ACTIVE_DAYS}d and skip_devices)
-  --watchdog         auto-pause via DIRECT psql if pg18 logs 'too many clients already' in last $WATCHDOG_WINDOW
+  --watchdog         auto-pause via Redis cache override if pg18 logs 'too many clients already' in last $WATCHDOG_WINDOW
   --log FILE         mirror output to FILE (default: auto-named in CWD; use /dev/null to suppress)
 EOF
     exit 1
@@ -109,6 +115,14 @@ ts_now() { TZ="$TZ_NAME" date '+%m-%d %H:%M:%S'; }
 # ---- container check ------------------------------------------------------
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     echo "Container '$CONTAINER_NAME' is not running (check with 'docker ps')"; exit 1
+fi
+
+# Extract DB name from DJANGO_PG so watchdog's psql path works regardless of
+# prod/test DB naming (prod is pronext_prod; test might be a backup DB).
+PG_DB=$(docker exec "$CONTAINER_NAME" sh -c 'echo "$DJANGO_PG"' 2>/dev/null \
+    | sed -nE 's|.*/([^/?]+)(\?.*)?$|\1|p')
+if [ -z "$PG_DB" ]; then
+    echo "Could not extract DB name from DJANGO_PG in container '$CONTAINER_NAME'"; exit 1
 fi
 
 # ---- fetch latest PUBLISHED state -----------------------------------------
@@ -179,6 +193,63 @@ fi
 VERSION=$(echo "$INFO"   | awk '/^version:/   {print $2}')
 BUILD_NUM=$(echo "$INFO" | awk '/^build_num:/ {print $2}')
 
+# ---- Redis APK cache helper -----------------------------------------------
+# check_update (viewset_pad.py:57-68) reads :1:latest_apk:published from Redis
+# and honors its is_paused field BEFORE touching PG. So flipping this cache is
+# a PG-independent way to pause/resume rollout: works under full PG saturation.
+#
+# Cache value is a JSON dict serialized by django_redis.serializers.json.
+# We GET, modify is_paused, SET back preserving TTL. Extracts REDIS password
+# from the pronext container's DJANGO_REDIS env var (no secret in this file).
+flip_published_cache_paused() {
+    local target="$1"   # "true" or "false"
+    local key=":1:latest_apk:published"
+    local redis_pwd raw ttl modified
+
+    redis_pwd=$(docker exec "$CONTAINER_NAME" sh -c 'echo "$DJANGO_REDIS"' 2>/dev/null \
+        | sed -nE 's|^redis://:([^@]+)@.*|\1|p')
+    if [ -z "$redis_pwd" ]; then
+        outln "[$(ts_now)] ⚠️  cache flip: cannot extract redis password from DJANGO_REDIS"
+        return 1
+    fi
+
+    raw=$(docker exec -e REDISCLI_AUTH="$redis_pwd" "$REDIS_CONTAINER" \
+        redis-cli --no-auth-warning GET "$key" 2>/dev/null)
+    if [ -z "$raw" ]; then
+        outln "[$(ts_now)] ⚠️  cache flip: $key is empty (cold cache). Nothing to override; check_update will rebuild from DB on next request."
+        return 1
+    fi
+
+    ttl=$(docker exec -e REDISCLI_AUTH="$redis_pwd" "$REDIS_CONTAINER" \
+        redis-cli --no-auth-warning TTL "$key" 2>/dev/null)
+    [ "$ttl" -lt 0 ] && ttl=604800    # -1/-2 fallback → 7d (APK_CACHE_TTL)
+
+    modified=$(printf '%s' "$raw" | python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+d['is_paused'] = '$target' == 'true'
+print(json.dumps(d))
+" 2>&1)
+    if [ -z "$modified" ] || echo "$modified" | grep -qE '^Traceback|^Error'; then
+        outln "[$(ts_now)] ⚠️  cache flip: JSON modify failed: $modified"
+        return 1
+    fi
+
+    # redis-cli -x reads stdin as the LAST arg. With `SET key value [EX N]`,
+    # value is second, so `-x SET key EX ttl` would place stdin at position 4
+    # (where Redis expects an option), failing. SETEX puts value last so stdin
+    # lands in the right slot.
+    set_result=$(printf '%s' "$modified" | docker exec -i -e REDISCLI_AUTH="$redis_pwd" "$REDIS_CONTAINER" \
+        redis-cli --no-auth-warning -x SETEX "$key" "$ttl" 2>&1)
+    if [ "$set_result" = "OK" ]; then
+        outln "[$(ts_now)] cache flip: $key is_paused=$target (TTL=${ttl}s)"
+        return 0
+    else
+        outln "[$(ts_now)] ⚠️  cache flip: SETEX returned: $set_result"
+        return 1
+    fi
+}
+
 # ---- follow loop ----------------------------------------------------------
 follow_progress() {
     local build_num="$1"
@@ -203,6 +274,34 @@ follow_progress() {
     outln ""
 
     while :; do
+        # R6: watchdog runs FIRST so it still fires when STATS query itself
+        # fails (which is exactly what happens when PG is storm-saturated).
+        # Does NOT depend on Django being reachable.
+        if [ "$WATCHDOG" -eq 1 ]; then
+            fatal_count=$(docker logs "$PG_CONTAINER" --since "$WATCHDOG_WINDOW" 2>&1 \
+                | grep -c "sorry, too many clients already" || true)
+            if [ "$fatal_count" -gt 0 ]; then
+                outln ""
+                outln "[$(ts_now)] ⚠️  WATCHDOG TRIPPED: $PG_CONTAINER logged $fatal_count 'too many clients' in last $WATCHDOG_WINDOW"
+                outln "[$(ts_now)] Pausing via Redis cache override (PG-independent)..."
+
+                flip_published_cache_paused true || outln "[$(ts_now)] ⚠️  cache flip failed"
+
+                # Best-effort DB persistence (may fail under PG pressure — that's OK)
+                WD_SQL=$(docker exec -i "$PG_CONTAINER" psql -U postgres -d "$PG_DB" -tA \
+                    -c "UPDATE common_padapk SET is_paused=true, updated_at=now() WHERE status=2 AND build_num=$build_num AND is_paused=false RETURNING id;" 2>&1 || true)
+                outln "[$(ts_now)] db persist attempt: $WD_SQL"
+                if ! echo "$WD_SQL" | grep -qE '^[0-9]+$'; then
+                    outln "[$(ts_now)] ⚠️  DB UPDATE did not persist. Cache override active for TTL."
+                    outln "[$(ts_now)]     MANUAL FOLLOW-UP REQUIRED: open Django admin and set is_paused=True on PadApk build=$build_num"
+                fi
+
+                outln "Rollout paused via watchdog. Follow loop exiting."
+                outln "Verify with: $0"
+                break
+            fi
+        fi
+
         STATS=$(docker exec -i "$CONTAINER_NAME" python manage.py shell <<PYEOF 2>/dev/null || true
 from pronext.common.models import PadApk
 from pronext.device.models import PadDevice
@@ -294,44 +393,6 @@ PYEOF
             "$upgraded" "$total" "$pct" "$delta_str" "$expected" "$health" "$skip" "$badge")
         outln "$line"
 
-        # R6: watchdog — if pg18 storms, PAUSE via DIRECT psql, NOT via Django.
-        # Django's connection pool may itself be blocked waiting for a PG slot;
-        # psql inside the pg18 container uses the Unix socket and PG's reserved
-        # superuser slots (superuser_reserved_connections, default 3), so the
-        # emergency brake still works even when application connections are starved.
-        if [ "$WATCHDOG" -eq 1 ] && [ "$paused" = "False" ]; then
-            fatal_count=$(docker logs "$PG_CONTAINER" --since "$WATCHDOG_WINDOW" 2>&1 \
-                | grep -c "sorry, too many clients already" || true)
-            if [ "$fatal_count" -gt 0 ]; then
-                outln ""
-                outln "[$(ts_now)] ⚠️  WATCHDOG TRIPPED: pg18 logged $fatal_count 'too many clients' in last $WATCHDOG_WINDOW"
-                outln "[$(ts_now)] Pausing via DIRECT psql (bypassing Django pool)..."
-
-                # 1) Raw UPDATE via pg18's Unix socket as postgres superuser.
-                #    Filters by status=2 (PUBLISHED) and build_num to avoid clobbering
-                #    other rows. AND is_paused=false so we only update when needed.
-                WD_SQL=$(docker exec -i "$PG_CONTAINER" psql -U postgres -d pronext_prod -tA \
-                    -c "UPDATE common_padapk SET is_paused=true, updated_at=now() WHERE status=2 AND build_num=$build_num AND is_paused=false RETURNING id;" 2>&1 || true)
-                outln "[$(ts_now)] psql: $WD_SQL"
-
-                # 2) Post_save signal did NOT fire (raw SQL), so APK cache is stale.
-                #    Delete the Django-redis keys directly. Keys have :1: prefix from django-redis.
-                REDIS_PWD=$(docker exec "$CONTAINER_NAME" sh -c 'echo "$DJANGO_REDIS"' 2>/dev/null \
-                    | sed -nE 's|^redis://:([^@]+)@.*|\1|p')
-                if [ -n "$REDIS_PWD" ]; then
-                    WD_CACHE=$(docker exec -e REDISCLI_AUTH="$REDIS_PWD" bcps-redis-1 \
-                        redis-cli --no-auth-warning DEL ":1:latest_apk:testing" ":1:latest_apk:published" 2>&1 || true)
-                    outln "[$(ts_now)] redis DEL: $WD_CACHE (number of keys removed)"
-                else
-                    outln "[$(ts_now)] ⚠️  Could not extract Redis password — APK cache NOT cleared. Manually: redis-cli DEL ':1:latest_apk:published'"
-                fi
-
-                outln "Rollout paused via watchdog. Follow loop exiting."
-                outln "Verify with: $0"
-                break
-            fi
-        fi
-
         prev_upgraded="$upgraded"
         sleep "$interval"
     done
@@ -362,8 +423,13 @@ esac
 
 echo "Applying change..."
 
+# Strategy: DB is authoritative. Try DB first; Django's post_save signal will
+# invalidate the Redis cache so next check_update rebuilds it. If DB fails
+# (e.g. PG saturated), fall back to a direct Redis cache flip so the effect
+# is at least immediate — operator is then prompted to finish via admin.
+
 # R4: re-check latest PUBLISHED at apply time, fail clearly if stale
-RESULT=$(docker exec -i "$CONTAINER_NAME" python manage.py shell <<PYEOF
+RESULT=$(docker exec -i "$CONTAINER_NAME" python manage.py shell <<PYEOF 2>&1 || true
 from pronext.common.models import PadApk
 latest = PadApk.objects.filter(status=PadApk.Status.PUBLISHED).order_by('-build_num').first()
 if latest is None:
@@ -391,8 +457,22 @@ elif echo "$RESULT" | grep -q "^ERR_NO_PUBLISHED"; then
     outln "No PUBLISHED PadApk found at apply time (was it un-published?). Aborting."
     exit 1
 else
-    outln "Apply failed with unexpected output. Inspect the message above."
-    exit 1
+    # Django path failed (likely PG saturated or Django unresponsive).
+    # Fall back to direct Redis cache flip — immediate effect, DB stays stale.
+    outln ""
+    outln "Django path failed. Falling back to Redis cache flip (effect is immediate, DB will NOT be persisted)."
+    target_flag=$([ "$NEW_PAUSED" = "True" ] && echo "true" || echo "false")
+    if flip_published_cache_paused "$target_flag"; then
+        NEW_STATE=$([ "$NEW_PAUSED" = "True" ] && echo "🛑 PAUSED (cache-only)" || echo "✅ ROLLING OUT (cache-only)")
+        outln "APK rollout $ACTION applied via cache — v${VERSION} (build ${BUILD_NUM}) is now: $NEW_STATE"
+        outln ""
+        outln "⚠️  MANUAL FOLLOW-UP REQUIRED:"
+        outln "    DB was NOT updated. Open Django admin and set is_paused=$NEW_PAUSED on PadApk build=$BUILD_NUM"
+        outln "    before the cache expires (TTL up to 7 days), or the override will revert."
+    else
+        outln "Both Django and Redis paths failed. State NOT changed."
+        exit 1
+    fi
 fi
 
 # ---- optional follow after start ------------------------------------------
