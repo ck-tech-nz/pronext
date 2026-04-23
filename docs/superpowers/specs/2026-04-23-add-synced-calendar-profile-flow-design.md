@@ -1,7 +1,7 @@
 # Add Synced Calendar: Bind to Profile at Add Time (Replace Default-Category Flow)
 
 **Date:** 2026-04-23
-**Scope:** App (Flutter) — Sync Calendar flow and related screens. Backend — SyncedCalendar write paths only.
+**Scope:** h5 (Vue WebView) — `h5/src/pages/synced/*`, plus new popup components and Profile-pick logic. Backend — SyncedCalendar write path adjustments to accept `profile_id` at insert time. **Flutter app is not touched.**
 
 ## Problem
 
@@ -27,12 +27,14 @@ Fold Profile binding into the add-synced-calendar flow so every SyncedCalendar i
 
 ## Approach
 
-Split the add flow by source type, because the UX constraints differ:
+Split the add flow by **how many calendars the source produces**, not by provider brand:
 
-- **OAuth providers (Google, Outlook, iCloud, Cozi, Yahoo)** — an OAuth session returns a list of sub-calendars. Users often want different sub-calendars bound to different Profiles (Dad's Gmail ≠ Kid's school calendar). So ask for Profile **per sub-calendar** at selection time.
-- **ICS / Calendar URL** — a URL points to exactly one calendar. Ask for Profile **once, before URL input**.
+- **Multi-select branch** — the provider returns a list of N sub-calendars via OAuth. Current implementations: Google (`Google.vue`) and Outlook when app ≥ 1.6 (`Outlook.vue`). Users often want different sub-calendars bound to different Profiles (Dad's Gmail ≠ Kid's school calendar), so ask for Profile **per sub-calendar** at selection time.
+- **Single-URL branch** — a single URL/endpoint points to exactly one calendar. Current implementations share `OtherPage.vue` with different `type` query params: iCloud, Cozi, Yahoo, Calendar URL, and legacy Outlook (app < 1.6). Ask for Profile **once, before URL input**.
 
-Both paths defer all DB writes until the final confirmation step. Abandoning mid-flow writes nothing.
+The Provider list ([h5/src/pages/synced/Add.vue:50-64](../../../h5/src/pages/synced/Add.vue#L50-L64)) already does this routing today; we just add Profile prompting at the appropriate moment in each branch.
+
+Both branches defer all DB writes until the final confirmation step (`[Done]` for multi-select, `[Done]` on URL input for single-URL). Abandoning mid-flow writes nothing.
 
 Public Calendars subscription (US Holidays) is untouched.
 
@@ -40,15 +42,17 @@ Public Calendars subscription (US Holidays) is untouched.
 
 Pencil reference: `Pronext-mobile.pen` → y=21150 row (`Label: Sync-Optimized`). Frame IDs noted per screen below.
 
-### User flow — OAuth branch
+### User flow — Multi-select branch (Google + Outlook-OAuth)
+
+Applies to: `Google.vue` (`syncedGoogle`) and `Outlook.vue` (`syncedOutlook`, only reached when app version ≥ 1.6). Both share the same Select Calendars template.
 
 ```
 Sync list              (Sync-v2, 5I9bs)
  → [+ Add]
 Provider list          (Sync-Providers-v2, Tv4zF)
- → tap Google/Outlook/iCloud/Cozi/Yahoo
+ → tap Google or Outlook
 OAuth authorization    (provider web flow, unchanged)
-Select Calendars       (Sync-Google-Select-v2, hi8zM)
+Select Calendars       (Sync-Google-Select-v2, hi8zM — template for both Google.vue and Outlook.vue)
  ├── tap unselected row
  │    → AssignProfile popup  (Sync-AssignProfile-Popup, Xr5FX)
  │       ├── pick existing Profile → row becomes checked + Profile chip
@@ -61,40 +65,42 @@ Select Calendars       (Sync-Google-Select-v2, hi8zM)
 Success               (Sync-Success-v2, o93OM)
 ```
 
-### User flow — ICS branch
+### User flow — Single-URL branch (iCloud / Cozi / Yahoo / Calendar URL / legacy Outlook)
+
+All five share `OtherPage.vue`, distinguished by `type` query param. The Profile pre-step is added once, shared across all five sub-flows.
 
 ```
 Sync list
  → [+ Add]
 Provider list
- → tap "Calendar URL"
+ → tap iCloud / Cozi / Yahoo / Calendar URL (or Outlook on legacy apps)
 ChooseProfile popup    (Sync-ChooseProfile-Popup-ICS, uCDgE)
  ├── pick existing Profile
  └── tap "+ Create new Profile"
-      → CreateProfile popup (same component as OAuth branch)
-URL input              (Sync-Calendar-URL-v2, NNVif)
- → [Save]
-Success                (shared with OAuth branch)
+      → CreateProfile popup (same component as Multi-select branch)
+URL input              (Sync-Calendar-URL-v2, NNVif — same template as today's OtherPage.vue, just preceded by the Profile popup)
+ → [Done]
+Success                (shared with Multi-select branch)
 ```
 
 ### Popup inventory
 
 | Popup | Appears from | Purpose | Fields |
 | --- | --- | --- | --- |
-| AssignProfile | OAuth Select Calendars row tap | Pick/create Profile for one sub-calendar | List of Profiles + "Create new" + Cancel |
-| ChooseProfile (ICS) | Provider list → Calendar URL | Pick/create Profile for the URL-based calendar | Same content as AssignProfile, different subtitle context |
+| AssignProfile | Multi-select branch, Select Calendars row tap | Pick/create Profile for one sub-calendar | List of Profiles + "Create new" + Cancel |
+| ChooseProfile | Single-URL branch, right after tapping iCloud/Cozi/Yahoo/Calendar URL/legacy Outlook | Pick/create Profile for the URL-based calendar | Same content as AssignProfile, different subtitle context |
 | CreateProfile | "+ Create new Profile" link on either of the above | Minimal Profile creation | Name (text), Color (6-swatch picker), Create & Assign, Cancel |
 
 ### Persistence rules
 
 **Nothing is written to the backend until the terminal action of each branch.**
 
-- OAuth: `[Done]` on Select Calendars. At that moment, create N SyncedCalendar rows in a single transaction, each with its assigned `profile_id`. Any CreateProfile popups invoked along the way may have already created Profiles — those persist immediately on "Create & Assign" since Profiles are independent entities.
-- ICS: `[Save]` on URL input. At that moment, create one SyncedCalendar with the pre-chosen `profile_id`.
+- Multi-select: `[Done]` on Select Calendars. At that moment, create N SyncedCalendar rows in a single transaction, each with its assigned `profile_id`. Any CreateProfile popups invoked along the way may have already created Profiles — those persist immediately on "Create & Assign" since Profiles are independent entities.
+- Single-URL: `[Done]` on URL input. At that moment, create one SyncedCalendar with the pre-chosen `profile_id`.
 
-Abandoning OAuth mid-flow (close app, back out) writes no SyncedCalendar rows. Any OAuth token obtained is held in app memory only until persist; if the user never hits Done, the token is discarded.
+Abandoning multi-select mid-flow (close app, back out) writes no SyncedCalendar rows. Any OAuth token obtained is held in h5 memory only until persist; if the user never hits Done, the token is discarded.
 
-Abandoning ICS mid-flow likewise writes no SyncedCalendar. A Profile created via the CreateProfile popup *does* persist even if the user abandons — this is intentional, matching the "Profiles are independent entities" model (the user can reuse it next time).
+Abandoning single-URL mid-flow likewise writes no SyncedCalendar. A Profile created via the CreateProfile popup *does* persist even if the user abandons — this is intentional, matching the "Profiles are independent entities" model (the user can reuse it next time).
 
 ### Data model
 
@@ -111,10 +117,11 @@ Once telemetry shows near-zero use of the legacy path, a follow-up spec can remo
 
 - **Zero Profiles exist.** AssignProfile / ChooseProfile popup skips the list view and opens CreateProfile directly (since there is nothing to pick).
 - **Exactly one Profile exists.** Popup still shows (per user decision — forced step helps users build the mental model of Profile binding).
-- **Same OAuth account synced twice.** Re-running the OAuth flow for an already-synced account is allowed; the Select Calendars screen should (a) show previously synced sub-calendars pre-checked with their current Profile chip, and (b) allow changing Profile or unchecking. Out of scope for v1 if the current "Select" screen doesn't load existing bindings; treat as a future enhancement. For v1, adding the same sub-calendar twice creates a duplicate row and is not prevented.
+- **Same OAuth account synced twice (multi-select branch).** The existing Google.vue / Outlook.vue already grey out previously synced sub-calendars via `didSync()`. That behavior stays. New rule: a newly checked sub-calendar must get a Profile assignment via the popup before it counts as selected. Changing the Profile of an already-synced row is out of scope for this flow — use the edit screen instead.
 - **User cancels OAuth.** Returns to Provider list. No state persisted.
 - **User closes CreateProfile without saving.** Returns to the parent popup (Assign or Choose) with no Profile picked.
-- **Network failure on `[Done]`.** Standard error toast. All-or-nothing: either every selected sub-calendar syncs or none. No partial state.
+- **Network failure on `[Done]` (multi-select).** Standard error toast. All-or-nothing: either every selected sub-calendar syncs or none. No partial state.
+- **Network failure on `[Done]` (single-URL).** Standard error toast. Single SyncedCalendar row — no partial-state problem to solve.
 
 ### Public Calendars (US Holidays)
 
@@ -123,19 +130,20 @@ No change. The Subscribe to Public Calendars section in the Provider list stays 
 ## Non-goals
 
 - **Per-sub-calendar Profile override after sync.** Editing a SyncedCalendar's Profile from the Sync list is a separate flow and out of scope.
-- **Multi-Profile assignment during OAuth.** Each sub-calendar gets exactly one Profile. Splitting one sub-calendar across multiple Profiles is not supported.
+- **Multi-Profile assignment of a single sub-calendar.** Each sub-calendar gets exactly one Profile. Splitting one sub-calendar across multiple Profiles is not supported.
 - **Auto-skip of AssignProfile popup when only one Profile exists.** Intentional — keeps the binding explicit and consistent.
 - **Renaming a calendar during the add flow.** Use the provider-returned name. Renaming lives on the edit screen.
 - **Backend changes to Public Calendars.** Out of scope per user decision.
 - **Bulk migration of existing orphan categories.** Deferred to a follow-up spec.
+- **Flutter app changes.** None needed. Outlook OAuth runs entirely in h5 (see [h5/src/managers/synced.js](../../../h5/src/managers/synced.js) `useSyncedOutlook`); Google OAuth similarly self-contained. Any Dart-side Outlook sync code is dead and handled by a separate cleanup (not this spec).
 
 ## Test plan (manual, iOS simulator + real device)
 
-Set up: a test account with no existing synced calendars and no existing Profiles.
+Set up: a test account with no existing synced calendars and no existing Profiles. Confirm the h5 build is loaded in the Flutter WebView (pointing to the branch that contains these changes).
 
-**OAuth branch — happy path**
-1. Home → Sync → tap `+ Sync a New Calendar` → Provider list appears with 5 provider rows (each with its icon) + Calendar URL + Subscribe section.
-2. Tap Google → OAuth web flow → return to Select Calendars with N sub-calendars listed, all unchecked (○).
+**Multi-select branch — happy path (via Google)**
+1. Home → Sync → tap `+ Sync a New Calendar` → Provider list appears with 5 provider rows (each with its brand icon) + Calendar URL + Subscribe section.
+2. Tap Google → OAuth web flow (in-WebView) → return to Select Calendars with N sub-calendars listed, all unchecked (○).
 3. Tap first sub-calendar → AssignProfile popup opens → since no Profiles exist, it auto-opens CreateProfile form.
 4. Enter name "Dad", pick orange color, tap Create & Assign → popup closes, row shows checked + orange "Dad" chip.
 5. Tap second sub-calendar → AssignProfile popup opens with "Dad" in list + "Create new" → tap "Create new" → create "Mom" with pink → row shows checked + pink "Mom" chip.
@@ -143,17 +151,23 @@ Set up: a test account with no existing synced calendars and no existing Profile
 7. Tap checkmark on row 1 → row deselects (back to ○).
 8. Tap Done → transitions to Success screen, shows Sync list with both synced calendars + their Profile chips. Backend DB has exactly 2 SyncedCalendar rows, each with correct `profile_id`. No orphan categories created.
 
-**ICS branch — happy path**
+**Multi-select branch — Outlook parity**
+Repeat the happy path against an Outlook account (app ≥ 1.6). Same expected behavior.
+
+**Single-URL branch — happy path (via Calendar URL)**
 1. From fresh state, Sync → `+ Add` → Provider list → tap Calendar URL.
 2. ChooseProfile popup appears immediately. No Profiles yet → auto-opens CreateProfile.
 3. Create "Work" profile.
 4. Transitions to URL input screen.
-5. Enter a valid ICS URL → Save → Success.
+5. Enter a valid ICS URL → Done → Success.
 6. Backend has 1 SyncedCalendar with `profile_id` = Work.
 
+**Single-URL branch — coverage per provider**
+Repeat the single-URL happy path tapping each of: iCloud, Cozi, Yahoo, and Outlook on a legacy app build (< 1.6). All five should show the ChooseProfile popup immediately after tapping, then the URL input screen.
+
 **Abandon paths**
-1. OAuth flow, select 2 sub-calendars with Profile assignments, then close app before tapping Done → re-open → no SyncedCalendar rows exist. Profiles created during the flow still exist (by design).
-2. ICS flow, pick Profile, enter URL, back button before Save → no SyncedCalendar row. Profile persists if created.
+1. Multi-select flow, select 2 sub-calendars with Profile assignments, then close app before tapping Done → re-open → no SyncedCalendar rows exist. Profiles created during the flow still exist (by design).
+2. Single-URL flow, pick Profile, enter URL, back button before Done → no SyncedCalendar row. Profile persists if created.
 
 **Zero/one Profile edge cases**
 1. Zero Profiles, any branch: popup skips list step.
@@ -173,6 +187,8 @@ Google, Outlook, iCloud, Cozi, Yahoo all show their brand icons (matches `docs/d
 
 ## References
 
-- Pencil design file: `/Users/ck/Documents/Pronext/UI/Pronext-mobile.pen`, row `Sync-Optimized` at y=21150.
+- Pencil design file: `/Users/ck/Documents/Pronext/UI/Pronext-mobile.pen`, row `Sync-Optimized` at y=21150. The Pencil `Select Calendars` frame represents the shared template for both `Google.vue` and `Outlook.vue`.
 - Current simulator screenshots: provided by user in chat thread, 2026-04-23.
 - Provider icon assets: [docs/design/assets/provider_icons/](../../../docs/design/assets/provider_icons/) (extracted from `h5/src/assets/icon_calendar_*.svg`).
+- Provider routing source of truth: [h5/src/pages/synced/Add.vue:50-64](../../../h5/src/pages/synced/Add.vue#L50-L64).
+- Outlook OAuth runs fully in h5: [h5/src/managers/synced.js](../../../h5/src/managers/synced.js) `useSyncedOutlook`. No Flutter path.
