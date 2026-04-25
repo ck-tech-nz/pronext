@@ -23,6 +23,11 @@ services:
         mem_limit: 6g     # 限内存6GB
         cpus: 4.0         # 限CPU 4.0
         mem_reservation: 4g  # 预留4GB
+        shm_size: 1g      # /dev/shm for parallel query dynamic shared memory.
+                          # Docker default is 64 MiB — too small for our
+                          # max_parallel_workers=8 + max_parallel_workers_per_gather=4
+                          # config (manifested as DiskFull "could not resize shared
+                          # memory segment" on /calendar/event/list during 2.2.4 rollout).
         # 通用调优统一放 custom-postgresql.conf；下面只留 PG18 专属新参数
         command: >
           postgres
