@@ -68,8 +68,45 @@ modified/cancelled instances (with `recurringEventId`). Pad does local rrule exp
 - **`start.date`** (all-day): `yyyy-MM-dd`, no timezone. **End date is EXCLUSIVE.**
 - **`start.dateTime`** (timed): RFC 3339 with timezone offset (e.g., `2026-03-15T14:00:00-04:00`)
 - **`start.timeZone`**: IANA timezone name (e.g., `"America/New_York"`)
-- **`colorId`**: String `"1"`–`"11"` or `"undefined"` (not int). Maps via `enums.py:google_color_hex`.
+- **`colorId`** (on event): String `"1"`–`"11"` or `"undefined"` (not int). Maps via `enums.py:google_color_hex`.
 - **`recurrence`**: Array containing RRULE and optionally EXDATE lines (iCalendar format)
+
+## Colors
+
+Two palettes, fetched via `GET /calendar/v3/colors`. Both are **global** — every
+authenticated user gets the same hex map; `response.updated` last moved 2012-02-14.
+
+| Palette key | IDs | Consumed by |
+|-------------|-----|-------------|
+| `event.<id>` | `"1"`–`"11"` | `Event.colorId` |
+| `calendar.<id>` | `"1"`–`"24"` | `CalendarListEntry.colorId` |
+
+What **is per-user** is the `CalendarListEntry` itself
+(`GET /users/me/calendarList`): each (user, calendar) pair has its own
+`colorId` / `backgroundColor` / `foregroundColor`. Two users subscribed to the
+same calendar can colour it differently in their own UI.
+
+UI colour resolution per viewer:
+
+1. If `event.colorId` is set → look up `event.<id>` (same for everyone).
+2. Else → use that viewer's `calendarList[i].backgroundColor`.
+
+That's why event colours can *look* per-user even though the API palette is global.
+
+### Custom calendar colours
+
+The Web UI's "Choose custom colour" picker writes two fields to that user's
+`CalendarListEntry`:
+
+- `colorId`: the **nearest** predefined `calendar.<id>` (e.g. `"12"`)
+- `backgroundColor` / `foregroundColor`: the actually-stored hex — Google snaps
+  to its picker grid, so the saved value may differ from what the user typed
+  by a few RGB units (e.g. typed `#fff047`, stored `#ffef42`).
+
+To write a custom hex via API: `PUT /calendarList/{id}?colorRgbFormat=true`
+with `backgroundColor` + `foregroundColor` in the body. Without
+`colorRgbFormat=true`, only the integer-style `colorId` is honoured and the
+hex fields are ignored.
 
 ## Event Types
 
