@@ -369,26 +369,31 @@ PYEOF
         delta_str=""
         if [ -n "$prev_upgraded" ]; then
             delta=$((upgraded - prev_upgraded))
-            if [ "$delta" -gt 0 ]; then delta_str=" (+$delta)"; fi
+            if [ "$delta" -gt 0 ]; then delta_str="(+$delta)"; fi
         fi
 
         # R3: health indicator based on (expected - actual)
         # on-track: actual >= expected-5
         # slow:     expected-15 <= actual < expected-5
         # stall:    actual < expected-15
-        health="📈"
+        health="📈       "
         if awk -v a="$pct" -v e="$expected" 'BEGIN{exit !(a + 15 < e)}'; then
-            health="🐢 slow"
+            health="🐢 slow  "
         fi
         if awk -v a="$pct" -v e="$expected" 'BEGIN{exit !(a + 30 < e)}'; then
-            health="🚨 stall"
+            health="🚨 stall "
         fi
 
         badge="✅ rolling"
         [ "$paused" = "True" ] && badge="🛑 paused"
 
+        # Fixed-width columns so numbers don't shift as values grow.
+        # %4s/%-5s  upgraded/total (total up to ~9999; left-align so trailing col stays put)
+        # %5s%%     pct / expected (XX.X% → 5 chars: " 99.9" or "100.0")
+        # %-6s      delta column: "(+NN)" or blank, padded to 6 for breathing room
+        # health is pre-padded above (emojis + label → visual width ~9 cols)
         elapsed=$(( $(date +%s) - start_ts ))
-        line=$(printf '[%s  +%02d:%02d]  upgraded=%s/%s (%s%%)%s  expected=%s%%  %s  skip=%s  %s' \
+        line=$(printf '[%s  +%02d:%02d]  upgraded=%4s/%-5s (%5s%%) %-6s  expected=%5s%%  %s skip=%3s  %s' \
             "$(ts_now)" $((elapsed/60)) $((elapsed%60)) \
             "$upgraded" "$total" "$pct" "$delta_str" "$expected" "$health" "$skip" "$badge")
         outln "$line"
