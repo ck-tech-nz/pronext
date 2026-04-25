@@ -167,8 +167,9 @@ Outlook.
 | File | Change |
 |---|---|
 | `backend/pronext/calendar/enums.py` | Replace `google_color_hex` values with `/colors` API hex; drop `"undefined"` key |
+| `backend/pronext/calendar/google_sync.py` | **Bug fix**: `update_event` switch `events().update()` → `events().patch()` (PUT→PATCH) so omitted `colorId` doesn't clear the upstream color |
 | `pad/.../modules/calendar/GoogleCalendarClient.kt` | Add `GOOGLE_EVENT_COLOR_HEX` const; in `toEntity()` set `color = colorId?.let { GOOGLE_EVENT_COLOR_HEX[it] }` |
-| `backend/pronext/calendar/tests/test_options.py` | Test: synced Google event with colorId stores correct hex |
+| `backend/pronext/calendar/tests/test_options.py` | Test: synced Google event with colorId stores correct hex; Pronext update of Google event preserves upstream colorId |
 | `pad/.../modules/calendar/GoogleCalendarClientTest.kt` | Test: `toEntity` translates colorId; null → null |
 
 ### 4.2 New `enums.py` (Google portion)
@@ -438,19 +439,72 @@ Bump Room schema version. New table `outlook_master_category` and widened
 `color` column on `calendar_event`. Migration replays without data loss
 (existing color values fit in wider column).
 
-### 5.9 Write-back must NOT include color
+### 5.9 Write-back semantics: preserve upstream color across all paths
 
-Outlook is bidirectional (`feat: Outlook bidirectional sync` #286). Both
-write-back surfaces must omit color-related fields:
+Both providers have bidirectional sync today. We must guarantee that any
+Pronext-initiated write (update / delete / recurrence change) preserves the
+user's color choice on the upstream provider.
 
-- Pad `OutlookCalendarClient` — `create_event` / `update_event` payload
-  builders
-- Backend `outlook_sync.py` — any server-side write functions invoked from
-  admin or sync reconciliation paths
+**Audit of current code** (verified 2026-04-26):
 
-The request body **must not** include `categories` or any color-derived field
-(if those fields are needed in the future for non-color reasons, add an
-explicit allow-list rather than re-introducing implicit pass-through).
+| Operation | Provider | Current method | Preserves color? | Action needed |
+|---|---|---|---|---|
+| Update event | Google | `events().update()` (HTTP PUT) at `google_sync.py:213` | ❌ **NO** — PUT replaces resource, body has no `colorId` → upstream color cleared | **Phase 1: switch to `events().patch()`** |
+| Update event | Outlook | `PATCH /me/events/{id}` at `outlook_sync.py:249` | ✅ Yes — PATCH preserves omitted fields | None |
+| Update recurrence only | Google | `events().patch()` at `google_sync.py:227` | ✅ Yes | None |
+| Update recurrence only | Outlook | PATCH (recurrence-only body) | ✅ Yes | None |
+| Delete event | Google | `events().delete()` (HTTP DELETE) | n/a (event removed) | None |
+| Delete event | Outlook | HTTP DELETE | n/a | None |
+| Insert event | Google | `events().insert()` no `colorId` in body | New events have no color (matches product: Pad/App can't set color) | None |
+| Insert event | Outlook | POST no `categories` in body | Same as Google | None |
+
+**The Google `update_event` bug** is pre-existing and clears far more than
+colorId. The PUT body only contains `summary / start / end / recurrence`, so
+every Pronext-initiated edit silently resets every other upstream field:
+`attendees`, `attachments`, `location.coordinates`, `transparency`,
+`visibility`, `reminders.overrides`, `extendedProperties`, and
+`conferenceData` (Google Meet links). Hidden today because (a) most events
+have none of these populated, (b) Pronext's read-back doesn't show most of
+them, so users notice only sporadically (e.g., "my Google Meet link
+disappeared after I edited the title").
+
+**General principle for bidirectional sync**: only modify fields the
+client UI is allowed to edit. Anything the user might have set directly on
+the upstream provider (color, attendees, attachments, conference link,
+extended properties, etc.) must be left alone. This is exactly what PATCH
+semantics gives us; PUT semantics violates it for every non-edited field.
+
+**Fix in Phase 1**:
+
+```python
+# google_sync.py:213
+- obj = self.exec(self.service.events().update(calendarId=self.email, eventId=event_id, body=body))
++ obj = self.exec(self.service.events().patch(calendarId=self.email, eventId=event_id, body=body))
+```
+
+Single-line change. PATCH semantics matches Outlook's update path and matches
+the design's "don't write color, preserve upstream" contract.
+
+**Test guards** (one for each provider):
+
+```python
+# tests/test_google_sync.py
+def test_google_update_preserves_upstream_color_id():
+    # mock Google with event having colorId="10"
+    # call update_event with body excluding colorId
+    # assert PATCH issued (not PUT) and resulting event still has colorId="10"
+```
+
+```python
+# tests/test_outlook_sync.py
+def test_outlook_update_preserves_upstream_categories():
+    # mock Outlook event with categories=["Blue"]
+    # call update_event without `categories` in body
+    # assert PATCH issued and resulting event still has categories=["Blue"]
+```
+
+These tests also lock against future regressions (someone "simplifying" by
+switching back to PUT).
 
 Lock with tests on both sides:
 
@@ -522,6 +576,8 @@ sync fails 500.
 - [ ] Outlook event with `["Red", "Blue"]` renders as stripes `#E81123,#0078D4`
 - [ ] After user changes "Blue category" preset in Outlook, Pad/H5 reflects new color within one sync interval (worst case 1h on backend cache)
 - [ ] Pad on the previous version (without color translation) continues to sync events; events render with category-fallback color (no regression)
+- [ ] Pronext-initiated update of a Google event with existing colorId leaves the colorId intact on Google (verifies the PUT→PATCH fix)
+- [ ] Pronext-initiated update of an Outlook event with existing categories leaves the categories intact on Outlook
 - [ ] Outlook 2-way sync write-back payload does not include `categories`
 - [ ] Backend test suite green; Pad unit tests green
 - [ ] Schema migration runs on local backup of prod DB without errors

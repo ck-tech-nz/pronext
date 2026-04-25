@@ -26,6 +26,14 @@
 #   calendars: jq '.value[] | {id, name, isDefaultCalendar, owner: .owner.address}'
 #   events:    jq '.value[] | {id, subject, start, end, type, seriesMasterId, isCancelled}'
 
+# URL note:
+#   /me/calendar/...        the default calendar (singular path, no id needed)
+#   /me/calendars/{id}/...  a specific calendar by id (plural + id) — to query a
+#                           non-default calendar, list /me/calendars first, copy
+#                           the id, and substitute by hand.
+# MS_USER_ID stays "me" in the OAuth-authenticated case; only set it to a UPN
+# /object-id when calling on behalf of someone else with delegated/app perms.
+
 ### List the user's calendars
 GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendars
 Authorization: Bearer {{MS_GRAPH_TOKEN}}
@@ -35,9 +43,17 @@ GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar
 Authorization: Bearer {{MS_GRAPH_TOKEN}}
 
 ### List events in the default calendar
-GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar/events?$top=50&$orderby=start/dateTime&$select=id,subject,start,end,recurrence,type,seriesMasterId,isCancelled
+# Note: $select acts as an allow-list — fields not listed are omitted from the
+# response. `categories` is required to resolve event color via masterCategories.
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar/events?$top=50&$orderby=start/dateTime&$select=id,subject,start,end,recurrence,type,seriesMasterId,isCancelled,categories
 Authorization: Bearer {{MS_GRAPH_TOKEN}}
 Prefer: outlook.timezone="UTC"
+
+### List the user's outlook category color presets (per-user mapping)
+# Returns {displayName, color: "preset0".."preset24" | "none"} for each category.
+# Cached server-side (Redis 1h) and Pad-side (Room) — see event-color spec.
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/outlook/masterCategories
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
 
 ### Calendar view (expanded recurring instances) for a date range
 GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar/calendarView?startDateTime=2026-04-25T00:00:00Z&endDateTime=2026-05-25T00:00:00Z&$top=999&$select=id,subject,start,end,seriesMasterId,isCancelled,type
