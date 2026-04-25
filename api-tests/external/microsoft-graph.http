@@ -1,0 +1,67 @@
+# Microsoft Graph API (Outlook calendar)
+# Docs: https://learn.microsoft.com/en-us/graph/api/resources/calendar
+#
+# Token: MS_GRAPH_TOKEN is short-lived (~1h). To refresh, see the `api-tests`
+# skill — it walks sc_id → refresh_token → fresh access_token, either off-DB
+# (read-only, prod-safe) or write-back (local only). MS sometimes rotates the
+# refresh_token in the response; off-DB path discards it (safe — next sync
+# picks it up).
+#
+# event.type values:
+#   singleInstance   non-recurring event
+#   seriesMaster     master of a recurring series; carries `recurrence`
+#   occurrence       unmodified instance of a series
+#   exception        modified instance (links back via seriesMasterId)
+# Cancelled occurrences appear with isCancelled=true.
+#
+# Common params / headers:
+#   $top                       page size, default 10, cap 1000
+#   $select                    comma-separated allow-list (avoid huge payloads)
+#   $orderby                   e.g. "lastModifiedDateTime desc"
+#   $filter                    OData, e.g. "type eq 'seriesMaster'"
+#   Prefer: outlook.timezone="UTC"        return all times in UTC (Pad expects this)
+#   Prefer: outlook.body-content-type="text"   plain text body instead of HTML
+#
+# Useful jq slices:
+#   calendars: jq '.value[] | {id, name, isDefaultCalendar, owner: .owner.address}'
+#   events:    jq '.value[] | {id, subject, start, end, type, seriesMasterId, isCancelled}'
+
+### List the user's calendars
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendars
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+
+### Get the default calendar
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+
+### List events in the default calendar
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar/events?$top=50&$orderby=start/dateTime&$select=id,subject,start,end,recurrence,type,seriesMasterId,isCancelled
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+Prefer: outlook.timezone="UTC"
+
+### Calendar view (expanded recurring instances) for a date range
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendar/calendarView?startDateTime=2026-04-25T00:00:00Z&endDateTime=2026-05-25T00:00:00Z&$top=999&$select=id,subject,start,end,seriesMasterId,isCancelled,type
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+Prefer: outlook.timezone="UTC"
+
+### Get a single event by id
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/events/{{MS_EVENT_ID}}
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+
+### Delta query (incremental sync). Use the @odata.deltaLink from a previous response.
+GET https://graph.microsoft.com/v1.0/{{MS_USER_ID}}/calendarView/delta?startDateTime=2026-04-25T00:00:00Z&endDateTime=2026-05-25T00:00:00Z
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+Prefer: outlook.timezone="UTC"
+
+### Subscribe to change notifications (webhook)
+POST https://graph.microsoft.com/v1.0/subscriptions
+Authorization: Bearer {{MS_GRAPH_TOKEN}}
+Content-Type: application/json
+
+{
+  "changeType": "created,updated,deleted",
+  "notificationUrl": "https://example.com/webhook",
+  "resource": "/me/events",
+  "expirationDateTime": "2026-05-25T00:00:00Z",
+  "clientState": "secret-client-state"
+}

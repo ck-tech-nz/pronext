@@ -1,0 +1,63 @@
+# Google Calendar API v3
+# Docs: https://developers.google.com/calendar/api/v3/reference
+#
+# Token: GOOGLE_OAUTH_TOKEN is short-lived (~1h). To refresh, see the
+# `api-tests` skill — it walks sc_id → refresh_token → fresh access_token,
+# either off-DB (read-only, prod-safe) or write-back (local only).
+#
+# Param cheat sheet (used by /events below):
+#   singleEvents=false  → masters + exceptions; required for orderBy=updated.
+#   singleEvents=true   → expanded occurrences; required for orderBy=startTime.
+#   timeMin / timeMax   → ISO 8601 RFC 3339; use ...Z for UTC.
+#   maxResults          → default 250, cap 2500.
+#   syncToken           → from a prior response; returns delta only.
+#
+# Useful jq slices:
+#   calendarList:         jq '.items[] | {id, summary, primary, accessRole}'
+#   calendarList colors:  jq '.items[] | {id, summary, colorId, backgroundColor, foregroundColor}'
+#   events:               jq '.items[] | {id, summary, start, end, recurrence}'
+
+### List the user's calendars
+GET https://www.googleapis.com/calendar/v3/users/me/calendarList
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### Get one calendar's metadata
+GET https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### Get the color palette (event.colorId "1".."11" → hex)
+# Event objects carry a string `colorId`; resolve via `event.<id>.background`.
+# Calendar-level color (when an event has no colorId of its own) lives in
+# `calendar.<id>` keyed by the calendarList entry's `colorId`.
+GET https://www.googleapis.com/calendar/v3/colors
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### List events — masters + exceptions (best for sync fidelity)
+# Recurring masters carry a `recurrence` field; modified instances appear as
+# exceptions. orderBy=updated requires singleEvents=false.
+GET https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}/events?singleEvents=false&orderBy=updated&maxResults=250
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### List events — expanded occurrences in a date range (best for "what shows on day X")
+# Each recurring instance becomes its own row (no `recurrence` field).
+GET https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}/events?singleEvents=true&orderBy=startTime&timeMin=2026-04-25T00:00:00Z&timeMax=2026-05-25T00:00:00Z
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### Get a single event by id
+GET https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}/events/{{GOOGLE_EVENT_ID}}
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### Incremental sync (use syncToken from a previous full list response)
+GET https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}/events?syncToken=PUT_TOKEN_HERE
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+
+### Watch a calendar (push notifications)
+POST https://www.googleapis.com/calendar/v3/calendars/{{GOOGLE_CALENDAR_ID}}/events/watch
+Authorization: Bearer {{GOOGLE_OAUTH_TOKEN}}
+Content-Type: application/json
+
+{
+  "id": "test-channel-id-uuid",
+  "type": "web_hook",
+  "address": "https://example.com/webhook"
+}
