@@ -150,6 +150,7 @@ To rebuild the prod box from scratch:
 
 ## See also
 
+- [`CLAUDE.md`](CLAUDE.md) — deploy-side gotchas and design notes (pg18 tuning, watchdog design, PG/Docker footguns)
 - [`../server-sync.yml`](../server-sync.yml) — sync-deploy environment definitions
 - [`../backend/CLAUDE.md`](../backend/CLAUDE.md) — backend architecture
 - [`../CLAUDE.md`](../CLAUDE.md) — repo-wide conventions

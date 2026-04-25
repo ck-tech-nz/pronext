@@ -158,6 +158,7 @@ Each component has its own detailed documentation:
 - **[backend/CLAUDE.md](backend/CLAUDE.md)** - Comprehensive Django backend guide (Beat system, Pad auth, testing)
 - **[heartbeat/README.md](heartbeat/README.md)** - Go service documentation
 - **[pad/CLAUDE.md](pad/CLAUDE.md)** - Android/Kotlin UI patterns
+- **[deploy/CLAUDE.md](deploy/CLAUDE.md)** - Deploy-side gotchas and design notes (pg18 tuning, OTA watchdog, PG/Docker footguns)
 
 ## Key Concepts
 
