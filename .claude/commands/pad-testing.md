@@ -29,7 +29,13 @@ $HOME/Library/Android/sdk/platform-tools/adb devices | grep -v "^List" | grep "d
 # Expect: one "emulator-XXXX device" line
 ```
 
-If either fails, STOP and tell the user what's wrong (don't attempt to start backend yourself — the user wants to see its logs).
+**Multi-emulator setup**: if more than one `emulator-XXXX device` line appears,
+gradle will install on the wrong one or fail with "Multiple devices". Pick one
+and `export ANDROID_SERIAL=emulator-5554` (or whatever) in the same shell as
+the gradle command. Pre-clearing app data should also use `-s emulator-5554`
+explicitly: `$ADB -s emulator-5554 shell pm clear it.expendables.pronext`.
+
+If either pre-flight check fails, STOP and tell the user what's wrong (don't attempt to start backend yourself — the user wants to see its logs).
 
 ### Step 1: Create test device, category, and get activation code
 
@@ -83,18 +89,29 @@ If you need to run multiple times in a session, repeat Step 1 (new device) and S
 
 ### Step 4: Run tests
 
+**CRITICAL**: target `:app:connectedDebugAndroidTest`, NOT bare
+`connectedDebugAndroidTest`. The Pad project has a separate `:app:mix`
+submodule (`pad/app/mix/`) that has its own empty `androidTest/` dir. The
+bare task runs across ALL submodules and gradle picks `:app:mix:` first;
+when it finds no test class matching the supplied
+`-Pandroid.testInstrumentationRunnerArguments.class=...`, it errors with
+`java.lang.RuntimeException: Failed loading specified test class '...'`
+even though the class exists in the `:app` module's androidTest sources.
+
 If no argument or `run`:
 ```bash
 cd /Users/ck/Git/pronext/pronext/pad
-./gradlew connectedDebugAndroidTest 2>&1
+./gradlew :app:connectedDebugAndroidTest 2>&1
 ```
 
 If `run <TestClass>` (e.g., `run EventCreateTest`):
 ```bash
 cd /Users/ck/Git/pronext/pronext/pad
-./gradlew connectedDebugAndroidTest \
+./gradlew :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=it.expendables.pronext.calendar.<TestClass>
 ```
+
+For `auth` tests: substitute `it.expendables.pronext.auth.<TestClass>`.
 
 ### Step 5: Report results
 
@@ -154,6 +171,8 @@ pad/app/src/androidTest/java/it/expendables/pronext/
 
 ## Troubleshooting
 
+- **`Failed loading specified test class 'it.expendables.pronext...'`**: Bare `./gradlew connectedDebugAndroidTest` ran against the `:app:mix` submodule which has its own (empty) `androidTest/` and doesn't see classes in `:app/src/androidTest/`. Always target `./gradlew :app:connectedDebugAndroidTest` (with the `:app:` prefix) — see Step 4.
+- **Tests installed on the wrong emulator**: With multiple `emulator-XXXX` devices connected, gradle silently picks one (often by transport_id order). `export ANDROID_SERIAL=emulator-5554` (matching whichever you want) before running gradle, and pass `-s emulator-5554` to any `adb` calls.
 - **Tests timeout on login**: Check Django is running, emulator has network access to 10.0.2.2:8000
 - **Events not appearing after create**: The device likely has no category/profile — Step 1 creates one automatically. If still failing, check the calendar filter shows a profile (not "No Profile")
 - **"Already exists" errors**: Previous test run left data — events use unique timestamped titles to avoid this
